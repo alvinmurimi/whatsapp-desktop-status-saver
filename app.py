@@ -6,16 +6,20 @@ import json
 from PIL import Image
 import cv2
 
-# Default path for WhatsApp statuses and downloads
+# Default paths and settings
 WHATSAPP_STATUS_PATH = os.path.expandvars(r'%userprofile%\AppData\Local\Packages\5319275A.WhatsAppDesktop_cv1g1gvanyjgm\LocalState\shared\transfers')
 DEFAULT_SAVE_DIR = os.path.join(os.path.expanduser('~'), 'Downloads', 'WhatsappStatuses')
-SETTINGS_FILE = "settings.json"
+SETTINGS_DIR = os.path.join(os.path.expanduser('~'), 'AppData', 'Local', 'WhatsAppStatusSaver')
+SETTINGS_FILE = os.path.join(SETTINGS_DIR, "settings.json")
+
+if not os.path.exists(SETTINGS_DIR):
+    os.makedirs(SETTINGS_DIR)
 
 def load_settings():
     if os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE, 'r') as f:
             return json.load(f)
-    return {"save_dir": DEFAULT_SAVE_DIR}
+    return {"save_dir": DEFAULT_SAVE_DIR, "theme_mode": "light"}
 
 def save_settings(settings):
     with open(SETTINGS_FILE, 'w') as f:
@@ -23,14 +27,15 @@ def save_settings(settings):
 
 def main(page: ft.Page):
     page.title = "WhatsApp Status Saver"
-    page.window_width = 1200
-    page.window_height = 800
+    page.window.width = 1200
+    page.window.height = 800
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
     page.vertical_alignment = ft.MainAxisAlignment.START
     page.window_always_on_top = True
 
     settings = load_settings()
     save_dir = settings["save_dir"]
+    page.theme_mode = settings.get("theme_mode", "light")
 
     def download_status(file_path, dest_dir):
         try:
@@ -88,10 +93,9 @@ def main(page: ft.Page):
                         controls=[
                             ft.IconButton(
                                 icon=ft.icons.DELETE if show_delete_button else ft.icons.SAVE_ALT,
+                                icon_color="pink600" if show_delete_button else "blue400",
                                 tooltip="Delete" if show_delete_button else "Download",
-                                on_click=lambda _: delete_file(file_path) if show_delete_button else download_status(file_path, save_dir,
-                                icons.FILTER_3
-                                ),
+                                on_click=lambda _: delete_file(file_path) if show_delete_button else download_status(file_path, save_dir),
                             ),
                         ],
                         alignment=ft.MainAxisAlignment.SPACE_EVENLY,
@@ -175,7 +179,7 @@ def main(page: ft.Page):
         elif index == 3:
             show_settings()
         page.update()
-
+    
     def show_settings():
         def on_save_click(e):
             new_save_dir = save_dir_input.value
@@ -187,6 +191,7 @@ def main(page: ft.Page):
             page.go("/")
 
         save_dir_input = ft.TextField(value=save_dir, label="Save Directory", width=500)
+
         save_button = ft.ElevatedButton(text="Update", on_click=on_save_click)
 
         page_content.controls = [ft.Column(
@@ -198,7 +203,10 @@ def main(page: ft.Page):
         page.update()
 
     def theme_changed(e):
-        page.theme_mode = "dark" if page.theme_mode == "light" else "light"
+        new_theme_mode = "dark" if page.theme_mode == "light" else "light"
+        settings["theme_mode"] = new_theme_mode
+        save_settings(settings)
+        page.theme_mode = new_theme_mode
         page.update()
 
     if not os.path.exists(WHATSAPP_STATUS_PATH):
@@ -235,7 +243,6 @@ def main(page: ft.Page):
 
     LIGHT_SEED_COLOR = ft.colors.DEEP_ORANGE
     DARK_SEED_COLOR = ft.colors.INDIGO
-    page.theme_mode = "light"
     page.theme = ft.theme.Theme(color_scheme_seed=LIGHT_SEED_COLOR, use_material3=True)
     page.dark_theme = ft.theme.Theme(color_scheme_seed=DARK_SEED_COLOR, use_material3=True)
     page.appbar = ft.AppBar(
@@ -245,6 +252,7 @@ def main(page: ft.Page):
         actions=[
             ft.IconButton(
                     ft.icons.WB_SUNNY_OUTLINED if page.theme_mode == "light" else ft.icons.WB_SUNNY,
+                    ft.icons.FILTER_3,
                     on_click=lambda e: theme_changed(e),
                     padding=20
             )
