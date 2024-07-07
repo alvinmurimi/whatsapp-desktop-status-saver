@@ -190,12 +190,21 @@ def main(page: ft.Page):
             page.snack_bar = ft.SnackBar(ft.Text(f"Save directory updated to: {new_save_dir}"), open=True)
             page.go("/")
 
-        save_dir_input = ft.TextField(value=save_dir, label="Save Directory", width=500)
+        def pick_directory_result(e: ft.FilePickerResultEvent):
+            if e.path:
+                save_dir_input.value = e.path
+                save_dir_input.update()
+
+        pick_directory_dialog = ft.FilePicker(on_result=pick_directory_result)
+        save_dir_input = ft.TextField(value=save_dir, label="Save Directory", width=500, read_only=True)
+        pick_directory_button = ft.ElevatedButton(text="Browse", on_click=lambda _: pick_directory_dialog.get_directory_path())
 
         save_button = ft.ElevatedButton(text="Update", on_click=on_save_click)
 
+        page.overlay.append(pick_directory_dialog)
+
         page_content.controls = [ft.Column(
-            controls=[save_dir_input, save_button],
+            controls=[ft.Row(controls=[save_dir_input, pick_directory_button], spacing=10), save_button],
             alignment=ft.MainAxisAlignment.START,
             spacing=20,
             expand=True
