@@ -87,7 +87,7 @@ def main(page: ft.Page):
                     ft.Row(
                         controls=[
                             ft.IconButton(
-                                icon=ft.icons.DELETE if show_delete_button else ft.icons.DOWNLOAD,
+                                icon=ft.icons.DELETE if show_delete_button else ft.icons.SAVE_ALT,
                                 tooltip="Delete" if show_delete_button else "Download",
                                 on_click=lambda _: delete_file(file_path) if show_delete_button else download_status(file_path, save_dir),
                             ),
@@ -233,11 +233,10 @@ def main(page: ft.Page):
     )
 
     page_content = ft.Column(
-        [ft.Text("Select a category.")],
         alignment=ft.MainAxisAlignment.START,
         expand=True
     )
-
+    page.theme_mode = ft.ThemeMode.LIGHT
     page.add(
         ft.Row(
             [
