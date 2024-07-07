@@ -89,7 +89,9 @@ def main(page: ft.Page):
                             ft.IconButton(
                                 icon=ft.icons.DELETE if show_delete_button else ft.icons.SAVE_ALT,
                                 tooltip="Delete" if show_delete_button else "Download",
-                                on_click=lambda _: delete_file(file_path) if show_delete_button else download_status(file_path, save_dir),
+                                on_click=lambda _: delete_file(file_path) if show_delete_button else download_status(file_path, save_dir,
+                                icons.FILTER_3
+                                ),
                             ),
                         ],
                         alignment=ft.MainAxisAlignment.SPACE_EVENLY,
@@ -100,7 +102,7 @@ def main(page: ft.Page):
             ),
             width=150,
             height=200,
-            border=ft.border.all(1, ft.colors.with_opacity(0.1, ft.colors.GREY_400)),
+            border=ft.border.all(1, ft.colors.with_opacity(0.1, ft.colors.TRANSPARENT)),
             border_radius=ft.border_radius.all(10),
             padding=5,
         )
@@ -196,10 +198,7 @@ def main(page: ft.Page):
         page.update()
 
     def theme_changed(e):
-        if page.theme_mode == ft.ThemeMode.LIGHT:
-            page.theme_mode = ft.ThemeMode.DARK
-        else:
-            page.theme_mode = ft.ThemeMode.LIGHT
+        page.theme_mode = "dark" if page.theme_mode == "light" else "light"
         page.update()
 
     if not os.path.exists(WHATSAPP_STATUS_PATH):
@@ -225,9 +224,6 @@ def main(page: ft.Page):
             ft.NavigationRailDestination(
                 icon=ft.icons.SETTINGS, selected_icon=ft.icons.SETTINGS, label="Settings",
             ),
-            ft.NavigationRailDestination(
-                icon=ft.icons.BRIGHTNESS_6, selected_icon=ft.icons.BRIGHTNESS_6, label="Light/Dark",
-            ),
         ],
         on_change=lambda e: show_content(e.control.selected_index) if e.control.selected_index < 4 else theme_changed(e)
     )
@@ -236,7 +232,24 @@ def main(page: ft.Page):
         alignment=ft.MainAxisAlignment.START,
         expand=True
     )
-    page.theme_mode = ft.ThemeMode.LIGHT
+
+    LIGHT_SEED_COLOR = ft.colors.DEEP_ORANGE
+    DARK_SEED_COLOR = ft.colors.INDIGO
+    page.theme_mode = "light"
+    page.theme = ft.theme.Theme(color_scheme_seed=LIGHT_SEED_COLOR, use_material3=True)
+    page.dark_theme = ft.theme.Theme(color_scheme_seed=DARK_SEED_COLOR, use_material3=True)
+    page.appbar = ft.AppBar(
+        leading_width=40,
+        title=ft.Text("WhatsApp Status Saver"),
+        center_title=False,
+        actions=[
+            ft.IconButton(
+                    ft.icons.WB_SUNNY_OUTLINED if page.theme_mode == "light" else ft.icons.WB_SUNNY,
+                    on_click=lambda e: theme_changed(e),
+                    padding=20
+            )
+        ],
+    )
     page.add(
         ft.Row(
             [
