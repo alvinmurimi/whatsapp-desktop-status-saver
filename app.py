@@ -93,7 +93,7 @@ def main(page: ft.Page):
                         controls=[
                             ft.IconButton(
                                 icon=ft.icons.DELETE if show_delete_button else ft.icons.SAVE_ALT,
-                                icon_color=ft.colors.BLUE_GREY if show_delete_button else ft.colors.TEAL,
+                                icon_color=ft.colors.TEAL if show_delete_button else ft.colors.TEAL,
                                 tooltip="Delete" if show_delete_button else "Download",
                                 on_click=lambda _: delete_file(file_path) if show_delete_button else download_status(file_path, save_dir),
                             ),
@@ -150,35 +150,48 @@ def main(page: ft.Page):
 
     def show_content(index):
         if index == 0:
-            page_content.controls = [ft.GridView(
-                controls=[build_status_card(f) for f in load_statuses("photos")],
-                padding=10,
-                spacing=10,
-                run_spacing=10,
-                max_extent=200,
-                expand=True, 
-            )]
+            photo_files = load_statuses("photos")
+            if not photo_files:
+                page_content.controls = [ft.Text("No photos available.")]
+            else:
+                page_content.controls = [ft.GridView(
+                    controls=[build_status_card(f) for f in photo_files],
+                    padding=10,
+                    spacing=10,
+                    run_spacing=10,
+                    max_extent=200,
+                    expand=True,
+                )]
         elif index == 1:
-            page_content.controls = [ft.GridView(
-                controls=[build_status_card(f) for f in load_statuses("videos")],
-                padding=10,
-                spacing=10,
-                run_spacing=10,
-                max_extent=200,
-                expand=True,
-            )]
+            video_files = load_statuses("videos")
+            if not video_files:
+                page_content.controls = [ft.Text("No videos available.")]
+            else:
+                page_content.controls = [ft.GridView(
+                    controls=[build_status_card(f) for f in video_files],
+                    padding=10,
+                    spacing=10,
+                    run_spacing=10,
+                    max_extent=200,
+                    expand=True,
+                )]
         elif index == 2:
-            page_content.controls = [ft.GridView(
-                controls=[build_status_card(f, show_delete_button=True) for f in load_downloads()],
-                padding=10,
-                spacing=10,
-                run_spacing=10,
-                max_extent=200,
-                expand=True,
-            )]
+            download_files = load_downloads()
+            if not download_files:
+                page_content.controls = [ft.Text("No downloads available.")]
+            else:
+                page_content.controls = [ft.GridView(
+                    controls=[build_status_card(f, show_delete_button=True) for f in download_files],
+                    padding=10,
+                    spacing=10,
+                    run_spacing=10,
+                    max_extent=200,
+                    expand=True,
+                )]
         elif index == 3:
             show_settings()
         page.update()
+
     
     def show_settings():
         def on_save_click(e):
