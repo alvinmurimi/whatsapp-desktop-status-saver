@@ -93,7 +93,7 @@ def main(page: ft.Page):
                         controls=[
                             ft.IconButton(
                                 icon=ft.icons.DELETE if show_delete_button else ft.icons.SAVE_ALT,
-                                icon_color="pink600" if show_delete_button else "blue400",
+                                icon_color=ft.colors.BLUE_GREY if show_delete_button else ft.colors.TEAL,
                                 tooltip="Delete" if show_delete_button else "Download",
                                 on_click=lambda _: delete_file(file_path) if show_delete_button else download_status(file_path, save_dir),
                             ),
@@ -250,10 +250,13 @@ def main(page: ft.Page):
         expand=True
     )
 
-    LIGHT_SEED_COLOR = ft.colors.DEEP_ORANGE
-    DARK_SEED_COLOR = ft.colors.INDIGO
+    # Updated color schemes
+    LIGHT_SEED_COLOR = ft.colors.LIGHT_BLUE
+    DARK_SEED_COLOR = ft.colors.DEEP_PURPLE
+
     page.theme = ft.theme.Theme(color_scheme_seed=LIGHT_SEED_COLOR, use_material3=True)
     page.dark_theme = ft.theme.Theme(color_scheme_seed=DARK_SEED_COLOR, use_material3=True)
+
     page.appbar = ft.AppBar(
         leading_width=40,
         title=ft.Text("WhatsApp Status Saver"),
