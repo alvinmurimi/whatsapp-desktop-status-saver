@@ -133,7 +133,10 @@ def main(page: ft.Page):
 
     def load_downloads():
         try:
-            files = [os.path.join(save_dir, f) for f in os.listdir(save_dir)]
+            files = []
+            for f in os.listdir(save_dir):
+                if f.endswith(('.jpg', '.mp4')):
+                    files.append(os.path.join(save_dir, f))
             files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
             return files
         except Exception as e:
