@@ -7,6 +7,7 @@ import io
 import base64
 from PIL import Image
 import cv2
+import hashlib
 
 # Default paths and settings
 WHATSAPP_STATUS_PATH = os.path.expandvars(r'%userprofile%\AppData\Local\Packages\5319275A.WhatsAppDesktop_cv1g1gvanyjgm\LocalState\shared\transfers')
@@ -60,6 +61,24 @@ def main(page: ft.Page):
             page.snack_bar = ft.SnackBar(ft.Text(f"Error deleting: {str(e)}"), open=True)
         page.update()
 
+    def get_cached_thumbnail(file_path, size=(150, 150)):
+        # Create a unique filename for the cached thumbnail
+        file_hash = hashlib.md5(file_path.encode()).hexdigest()
+        cache_dir = os.path.join(SETTINGS_DIR, "thumbnail_cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        cache_file = os.path.join(cache_dir, f"{file_hash}_{size[0]}x{size[1]}.png")
+        
+        if os.path.exists(cache_file):
+            return cache_file
+        
+        # If cached thumbnail doesn't exist, create it
+        thumbnail = create_thumbnail(file_path, size)
+        if thumbnail:
+            thumbnail.save(cache_file, "PNG")
+            return cache_file
+        
+        return None
+
     def create_thumbnail(file_path, size=(150, 150)):
         if file_path.lower().endswith(('.png', '.jpg', '.jpeg')):
             with Image.open(file_path) as img:
@@ -78,14 +97,14 @@ def main(page: ft.Page):
 
     def build_status_card(file_path, show_delete_button=False):
         file_name = os.path.basename(file_path)
-        thumbnail = create_thumbnail(file_path)
+        thumbnail = get_cached_thumbnail(file_path)
         
         return ft.Container(
             content=ft.Column(
                 [
                     ft.Container(
                         content=ft.Image(
-                            src_base64=image_to_base64(thumbnail) if thumbnail else None,
+                            src=thumbnail if thumbnail else None,
                             width=140,
                             height=140,
                             fit=ft.ImageFit.COVER
