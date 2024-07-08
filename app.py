@@ -3,6 +3,8 @@ import os
 import shutil
 import datetime
 import json
+import io
+import base64
 from PIL import Image
 import cv2
 
@@ -31,7 +33,9 @@ def main(page: ft.Page):
     page.window.height = 800
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
     page.vertical_alignment = ft.MainAxisAlignment.START
-    page.window_always_on_top = True
+    page.window.always_on_top = True
+    page.window.title_bar_hidden = True  # Hide the default title bar
+    page.window.title_bar_buttons_hidden = True  # Hide the default title bar buttons
 
     settings = load_settings()
     save_dir = settings["save_dir"]
@@ -145,8 +149,6 @@ def main(page: ft.Page):
             return []
 
     def image_to_base64(img):
-        import io
-        import base64
         buffered = io.BytesIO()
         img.save(buffered, format="PNG")
         return base64.b64encode(buffered.getvalue()).decode()
@@ -195,7 +197,6 @@ def main(page: ft.Page):
             show_settings()
         page.update()
 
-    
     def show_settings():
         def on_save_click(e):
             new_save_dir = save_dir_input.value
@@ -266,34 +267,65 @@ def main(page: ft.Page):
         expand=True
     )
 
-    # Updated color schemes
     LIGHT_SEED_COLOR = ft.colors.LIGHT_BLUE
     DARK_SEED_COLOR = ft.colors.DEEP_PURPLE
 
     page.theme = ft.theme.Theme(color_scheme_seed=LIGHT_SEED_COLOR, use_material3=True)
     page.dark_theme = ft.theme.Theme(color_scheme_seed=DARK_SEED_COLOR, use_material3=True)
 
-    page.appbar = ft.AppBar(
-        leading_width=40,
-        title=ft.Text("WhatsApp Status Saver"),
-        center_title=False,
-        actions=[
-            ft.IconButton(
-                    ft.icons.WB_SUNNY_OUTLINED if page.theme_mode == "light" else ft.icons.WB_SUNNY,
-                    ft.icons.FILTER_3,
-                    on_click=lambda e: theme_changed(e),
-                    padding=20
-            )
-        ],
-    )
-    page.add(
-        ft.Row(
+    # Custom title bar
+    def maximize(e):
+        page.window.maximized = not page.window.maximized
+        page.update()
+
+    def minimize(e):
+        page.window.minimized = True
+        page.update()
+
+    def close(e):
+        page.window.close()
+
+    title_bar = ft.Container(
+        content=ft.Row(
             [
-                rail,
-                ft.VerticalDivider(width=1),
-                page_content
+                ft.WindowDragArea(
+                    ft.Container(
+                        content=ft.Text("WhatsApp Status Saver", style="headlineSmall"),
+                        padding=ft.padding.Padding(10, 10, 10, 10),
+                        expand=True,
+                    ),
+                    expand=True,
+                ),
+                ft.IconButton(
+                    icon=ft.icons.WB_SUNNY_OUTLINED if page.theme_mode == "light" else ft.icons.WB_SUNNY,
+                    on_click=theme_changed,
+                    tooltip="Toggle Theme"
+                ),
+                ft.IconButton(icon=ft.icons.MINIMIZE, on_click=minimize),
+                ft.IconButton(icon=ft.icons.CROP_DIN, on_click=maximize),
+                ft.IconButton(icon=ft.icons.CLOSE, on_click=close),
             ],
-            expand=True,
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            expand=True
+        ),
+        bgcolor=ft.colors.SURFACE,
+        padding=ft.padding.Padding(10, 10, 10, 10),
+    )
+
+    page.add(
+        ft.Column(
+            [
+                title_bar,
+                ft.Row(
+                    [
+                        rail,
+                        ft.VerticalDivider(width=1),
+                        page_content
+                    ],
+                    expand=True,
+                )
+            ],
+            expand=True
         )
     )
 
