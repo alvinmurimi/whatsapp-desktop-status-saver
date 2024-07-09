@@ -1,10 +1,22 @@
 import os
 import json
+import platform
+
+# Determine the operating system
+SYSTEM = platform.system()
 
 # Default paths and settings
-WHATSAPP_STATUS_PATH = os.path.expandvars(r'%userprofile%\AppData\Local\Packages\5319275A.WhatsAppDesktop_cv1g1gvanyjgm\LocalState\shared\transfers')
+if SYSTEM == "Windows":
+    WHATSAPP_STATUS_PATH = os.path.expandvars(r'%userprofile%\AppData\Local\Packages\5319275A.WhatsAppDesktop_cv1g1gvanyjgm\LocalState\shared\transfers')
+    SETTINGS_DIR = os.path.join(os.path.expanduser('~'), 'AppData', 'Local', 'WhatsAppStatusSaver')
+elif SYSTEM == "Darwin":  # macOS
+    WHATSAPP_STATUS_PATH = os.path.expanduser('~/Library/Containers/net.whatsapp.WhatsApp/Data/Library/Application Support/WhatsApp/shared/transfers')
+    SETTINGS_DIR = os.path.expanduser('~/Library/Application Support/WhatsAppStatusSaver')
+else:
+    raise NotImplementedError(f"Unsupported operating system: {SYSTEM}")
+    
+
 DEFAULT_SAVE_DIR = os.path.join(os.path.expanduser('~'), 'Downloads', 'WhatsappStatuses')
-SETTINGS_DIR = os.path.join(os.path.expanduser('~'), 'AppData', 'Local', 'WhatsAppStatusSaver')
 SETTINGS_FILE = os.path.join(SETTINGS_DIR, "settings.json")
 THUMBNAIL_CACHE_DIR = os.path.join(SETTINGS_DIR, "thumbnail_cache")
 
