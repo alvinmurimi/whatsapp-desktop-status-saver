@@ -5,6 +5,14 @@ from config import load_settings, save_settings, WHATSAPP_STATUS_PATH
 from ui import build_status_card, create_title_bar, create_navigation_rail
 from status_handler import load_statuses, download_status, delete_file
 
+def show_snack_bar(page, message):
+    if page.snack_bar:
+        page.snack_bar.content = ft.Text(message)
+        page.snack_bar.open = True
+        page.update()
+    else:
+        print(f"Snack bar not available: {message}")
+        
 async def main(page: ft.Page):
     page.title = "WhatsApp Status Saver"
     page.window.width = 1200
@@ -23,10 +31,12 @@ async def main(page: ft.Page):
         alignment=ft.MainAxisAlignment.START,
         expand=True
     )
-    
+
     async def show_content(index, page_num=1):
         items_per_page = 20
 
+        async def refresh_content():
+            await show_content(index, page_num)
         progress_bar = ft.ProgressBar(width=400)
         page_content.controls = [
             ft.Column([
@@ -61,11 +71,17 @@ async def main(page: ft.Page):
                 )
 
                 page_content.controls = [grid_view]
-
+                page.snack_bar = ft.SnackBar(content=ft.Text(""))
                 total_items = len(files)
                 is_download_section = (file_type == "downloads")
                 for i, file_path in enumerate(files):
-                    grid_view.controls.append(build_status_card(file_path, is_download_section, save_dir, lambda result: page.snack_bar.open(result)))
+                    grid_view.controls.append(build_status_card(
+                        file_path,
+                        is_download_section,
+                        save_dir,
+                        lambda result: show_snack_bar(page, result),
+                        on_delete=refresh_content if is_download_section else None
+                        ))
                     progress = (i + 1) / total_items
                     progress_bar.value = progress
                     if i % 5 == 0 or i == total_items - 1:
@@ -122,7 +138,7 @@ async def main(page: ft.Page):
         return
 
     async def on_tab_change(e):
-        await show_content(e.control.selected_index)
+        await show_content(e.control.selected_index, page_num=1)
 
     rail = create_navigation_rail(on_tab_change)
 
