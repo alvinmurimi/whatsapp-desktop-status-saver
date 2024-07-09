@@ -131,10 +131,16 @@ async def main(page: ft.Page):
             page.snack_bar = ft.SnackBar(ft.Text(f"Error deleting: {str(e)}"), open=True)
         page.update()
 
-    def build_status_card(file_path, show_delete_button=False):
+    def build_status_card(file_path, is_download_section=False):
         file_name = os.path.basename(file_path)
         thumbnail_path = get_cached_thumbnail(file_path)
         
+        async def handle_button_click(_):
+            if is_download_section:
+                await delete_file(file_path)
+            else:
+                await download_status(file_path, save_dir)
+
         return ft.Container(
             content=ft.Column(
                 [
@@ -151,10 +157,10 @@ async def main(page: ft.Page):
                     ft.Row(
                         controls=[
                             ft.IconButton(
-                                icon=ft.icons.DELETE if show_delete_button else ft.icons.SAVE_ALT,
-                                icon_color=ft.colors.TEAL if show_delete_button else ft.colors.TEAL,
-                                tooltip="Delete" if show_delete_button else "Download",
-                                on_click=lambda _: asyncio.create_task(delete_file(file_path) if show_delete_button else download_status(file_path, save_dir)),
+                                icon=ft.icons.DELETE if is_download_section else ft.icons.SAVE_ALT,
+                                icon_color=ft.colors.RED if is_download_section else ft.colors.TEAL,
+                                tooltip="Delete" if is_download_section else "Download",
+                                on_click=handle_button_click,
                             ),
                         ],
                         alignment=ft.MainAxisAlignment.SPACE_EVENLY,
@@ -208,18 +214,13 @@ async def main(page: ft.Page):
                     max_extent=200,
                     expand=True,
                 )
-                
-                load_more_button = ft.ElevatedButton(
-                    "Load More",
-                    icon=icon,
-                    on_click=lambda _: asyncio.create_task(load_more_content(index, page_num + 1))
-                )
 
-                page_content.controls = [grid_view, load_more_button]
+                page_content.controls = [grid_view]
 
                 total_items = len(files)
+                is_download_section = (file_type == "downloads")
                 for i, file_path in enumerate(files):
-                    grid_view.controls.append(build_status_card(file_path))
+                    grid_view.controls.append(build_status_card(file_path, is_download_section))
                     progress = (i + 1) / total_items
                     progress_bar.value = progress
                     if i % 5 == 0 or i == total_items - 1:
@@ -237,8 +238,6 @@ async def main(page: ft.Page):
         items_per_page = 20
         file_type = "photos" if index == 0 else "videos" if index == 1 else "downloads"
         
-        load_more_button = page_content.controls[-1]
-        load_more_button.disabled = True
         page.update()
 
         new_items = await asyncio.to_thread(load_statuses, file_type, save_dir, next_page, items_per_page)
@@ -252,8 +251,6 @@ async def main(page: ft.Page):
         
         if len(new_items) < items_per_page:
             page_content.controls.pop()
-        else:
-            load_more_button.disabled = False
         
         page.update()
 
