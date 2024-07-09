@@ -33,9 +33,6 @@ As an avid WhatsApp user, I couldn't find an easy way to save statuses without e
 ## How It Works
 
 1. **Status Discovery**: Scans the WhatsApp desktop client's local storage directory where statuses are temporarily cached.
-- Windows : ```%userprofile%\AppData\Local\Packages\5319275A.WhatsAppDesktop_cv1g1gvanyjgm\LocalState\shared\transfers```
-- Mac: ```~/Library/Containers/net.whatsapp.WhatsApp/Data/Library/Application Support/WhatsApp/shared/transfers```
-
 2. **File Categorization**: Sorts statuses into photos and videos based on file extensions.
 3. **Thumbnail Generation**: Uses Pillow for images and OpenCV for videos to create thumbnails.
 4. **UI Rendering**: Flet is used to create the user interface.
