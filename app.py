@@ -23,7 +23,7 @@ async def main(page: ft.Page):
         alignment=ft.MainAxisAlignment.START,
         expand=True
     )
-
+    
     async def show_content(index, page_num=1):
         items_per_page = 20
 
