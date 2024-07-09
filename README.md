@@ -5,7 +5,7 @@ WhatsApp Status Saver is a cross-platform desktop application designed to seamle
 
 ## Background
 
-As an avid WhatsApp user, I often found myself wanting to save statuses. However, I couldn't find a straightforward solution that didn't involve using emulators or complicated workarounds. Hence, I developed this simple, user-friendly application that can directly access and save statuses from the WhatsApp desktop app.
+As an avid WhatsApp user, I couldn't find an easy way to save statuses without emulators or complex workarounds, so I developed this simple, user-friendly app to save statuses directly from WhatsApp Desktop.
 
 ## Key Features
 
