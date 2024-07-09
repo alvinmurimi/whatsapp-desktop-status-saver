@@ -1,102 +1,9 @@
 import flet as ft
 import os
-import shutil
-import datetime
-import json
-import io
-import base64
-from PIL import Image
-import cv2
 import asyncio
-import hashlib
-from functools import lru_cache
-
-# Default paths and settings
-WHATSAPP_STATUS_PATH = os.path.expandvars(r'%userprofile%\AppData\Local\Packages\5319275A.WhatsAppDesktop_cv1g1gvanyjgm\LocalState\shared\transfers')
-DEFAULT_SAVE_DIR = os.path.join(os.path.expanduser('~'), 'Downloads', 'WhatsappStatuses')
-SETTINGS_DIR = os.path.join(os.path.expanduser('~'), 'AppData', 'Local', 'WhatsAppStatusSaver')
-SETTINGS_FILE = os.path.join(SETTINGS_DIR, "settings.json")
-THUMBNAIL_CACHE_DIR = os.path.join(SETTINGS_DIR, "thumbnail_cache")
-
-if not os.path.exists(SETTINGS_DIR):
-    os.makedirs(SETTINGS_DIR)
-
-if not os.path.exists(THUMBNAIL_CACHE_DIR):
-    os.makedirs(THUMBNAIL_CACHE_DIR)
-
-def load_settings():
-    if os.path.exists(SETTINGS_FILE):
-        with open(SETTINGS_FILE, 'r') as f:
-            return json.load(f)
-    return {"save_dir": DEFAULT_SAVE_DIR, "theme_mode": "light"}
-
-def save_settings(settings):
-    with open(SETTINGS_FILE, 'w') as f:
-        json.dump(settings, f)
-
-@lru_cache(maxsize=1)
-def get_all_status_files(file_type):
-    now = datetime.datetime.now()
-    yesterday = now - datetime.timedelta(days=1)
-    status_files = []
-    
-    for root, dirs, files in os.walk(WHATSAPP_STATUS_PATH):
-        for file in files:
-            if (file_type == 'photos' and file.startswith('IMG-') and file.endswith('.jpg')) or \
-               (file_type == 'videos' and file.startswith('VID-') and file.endswith('.mp4')):
-                file_path = os.path.join(root, file)
-                file_time = datetime.datetime.fromtimestamp(os.path.getmtime(file_path))
-                if yesterday <= file_time <= now:
-                    status_files.append(file_path)
-    
-    status_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
-    return status_files
-
-def load_statuses(file_type, save_dir, page=1, items_per_page=20):
-    try:
-        if file_type == "downloads":
-            all_files = [os.path.join(save_dir, f) for f in os.listdir(save_dir) if os.path.isfile(os.path.join(save_dir, f))]
-        else:
-            all_files = get_all_status_files(file_type)
-        
-        all_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
-        start = (page - 1) * items_per_page
-        end = start + items_per_page
-        return all_files[start:end]
-    except Exception as e:
-        print(f"Error loading statuses: {str(e)}")
-        return []
-
-def get_cached_thumbnail(file_path, size=(150, 150)):
-    file_hash = hashlib.md5(file_path.encode()).hexdigest()
-    cache_file = os.path.join(THUMBNAIL_CACHE_DIR, f"{file_hash}_{size[0]}x{size[1]}.png")
-    
-    if os.path.exists(cache_file):
-        return cache_file
-    
-    thumbnail = create_thumbnail(file_path, size)
-    if thumbnail:
-        thumbnail.save(cache_file, "PNG")
-        return cache_file
-    
-    return None
-
-def create_thumbnail(file_path, size=(150, 150)):
-    if file_path.lower().endswith(('.png', '.jpg', '.jpeg')):
-        with Image.open(file_path) as img:
-            img.thumbnail(size)
-            return img
-    elif file_path.lower().endswith(('.mp4', '.avi', '.mov')):
-        cap = cv2.VideoCapture(file_path)
-        ret, frame = cap.read()
-        if ret:
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            img = Image.fromarray(frame)
-            img.thumbnail(size)
-            cap.release()
-            return img
-        cap.release()
-    return None
+from config import load_settings, save_settings, WHATSAPP_STATUS_PATH
+from ui import build_status_card, create_title_bar, create_navigation_rail
+from status_handler import load_statuses, download_status, delete_file
 
 async def main(page: ft.Page):
     page.title = "WhatsApp Status Saver"
@@ -112,69 +19,10 @@ async def main(page: ft.Page):
     save_dir = settings["save_dir"]
     page.theme_mode = settings.get("theme_mode", "light")
 
-    async def download_status(file_path, dest_dir):
-        try:
-            if not os.path.exists(dest_dir):
-                os.makedirs(dest_dir)
-            await asyncio.to_thread(shutil.copy, file_path, dest_dir)
-            page.snack_bar = ft.SnackBar(ft.Text(f"Downloaded: {os.path.basename(file_path)} to {dest_dir}"), open=True)
-        except Exception as e:
-            page.snack_bar = ft.SnackBar(ft.Text(f"Error downloading: {str(e)}"), open=True)
-        page.update()
-
-    async def delete_file(file_path):
-        try:
-            await asyncio.to_thread(os.remove, file_path)
-            page.snack_bar = ft.SnackBar(ft.Text(f"Deleted: {os.path.basename(file_path)}"), open=True)
-            await show_content(2)  # Refresh the downloads view
-        except Exception as e:
-            page.snack_bar = ft.SnackBar(ft.Text(f"Error deleting: {str(e)}"), open=True)
-        page.update()
-
-    def build_status_card(file_path, is_download_section=False):
-        file_name = os.path.basename(file_path)
-        thumbnail_path = get_cached_thumbnail(file_path)
-        
-        async def handle_button_click(_):
-            if is_download_section:
-                await delete_file(file_path)
-            else:
-                await download_status(file_path, save_dir)
-
-        return ft.Container(
-            content=ft.Column(
-                [
-                    ft.Container(
-                        content=ft.Image(
-                            src=thumbnail_path,
-                            width=140,
-                            height=140,
-                            fit=ft.ImageFit.COVER
-                        ),
-                        width=140,
-                        height=140,
-                    ),
-                    ft.Row(
-                        controls=[
-                            ft.IconButton(
-                                icon=ft.icons.DELETE if is_download_section else ft.icons.SAVE_ALT,
-                                icon_color=ft.colors.RED if is_download_section else ft.colors.TEAL,
-                                tooltip="Delete" if is_download_section else "Download",
-                                on_click=handle_button_click,
-                            ),
-                        ],
-                        alignment=ft.MainAxisAlignment.SPACE_EVENLY,
-                    ),
-                ],
-                spacing=5,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
-            width=150,
-            height=200,
-            border=ft.border.all(1, ft.colors.with_opacity(0.1, ft.colors.TRANSPARENT)),
-            border_radius=ft.border_radius.all(10),
-            padding=5,
-        )
+    page_content = ft.Column(
+        alignment=ft.MainAxisAlignment.START,
+        expand=True
+    )
 
     async def show_content(index, page_num=1):
         items_per_page = 20
@@ -191,13 +39,10 @@ async def main(page: ft.Page):
         async def load_content():
             if index == 0:
                 file_type = "photos"
-                icon = ft.icons.PHOTO_CAMERA
             elif index == 1:
                 file_type = "videos"
-                icon = ft.icons.VIDEOCAM
             elif index == 2:
                 file_type = "downloads"
-                icon = ft.icons.FOLDER
             else:
                 return
 
@@ -220,7 +65,7 @@ async def main(page: ft.Page):
                 total_items = len(files)
                 is_download_section = (file_type == "downloads")
                 for i, file_path in enumerate(files):
-                    grid_view.controls.append(build_status_card(file_path, is_download_section))
+                    grid_view.controls.append(build_status_card(file_path, is_download_section, save_dir, lambda result: page.snack_bar.open(result)))
                     progress = (i + 1) / total_items
                     progress_bar.value = progress
                     if i % 5 == 0 or i == total_items - 1:
@@ -232,26 +77,6 @@ async def main(page: ft.Page):
         else:
             await load_content()
 
-        page.update()
-
-    async def load_more_content(index, next_page):
-        items_per_page = 20
-        file_type = "photos" if index == 0 else "videos" if index == 1 else "downloads"
-        
-        page.update()
-
-        new_items = await asyncio.to_thread(load_statuses, file_type, save_dir, next_page, items_per_page)
-        
-        if new_items:
-            grid_view = page_content.controls[0]
-            for file_path in new_items:
-                grid_view.controls.append(build_status_card(file_path))
-                await asyncio.sleep(0.01)
-                page.update()
-        
-        if len(new_items) < items_per_page:
-            page_content.controls.pop()
-        
         page.update()
 
     def show_settings():
@@ -299,33 +124,7 @@ async def main(page: ft.Page):
     async def on_tab_change(e):
         await show_content(e.control.selected_index)
 
-    rail = ft.NavigationRail(
-        selected_index=0,
-        label_type=ft.NavigationRailLabelType.ALL,
-        min_width=100,
-        min_extended_width=400,
-        group_alignment=-0.9,
-        destinations=[
-            ft.NavigationRailDestination(
-                icon=ft.icons.PHOTO_CAMERA, selected_icon=ft.icons.PHOTO_CAMERA, label="Photos"
-            ),
-            ft.NavigationRailDestination(
-                icon=ft.icons.VIDEOCAM, selected_icon=ft.icons.VIDEOCAM, label="Videos",
-            ),
-            ft.NavigationRailDestination(
-                icon=ft.icons.FOLDER, selected_icon=ft.icons.FOLDER, label="Downloads",
-            ),
-            ft.NavigationRailDestination(
-                icon=ft.icons.SETTINGS, selected_icon=ft.icons.SETTINGS, label="Settings",
-            ),
-        ],
-        on_change=on_tab_change
-    )
-
-    page_content = ft.Column(
-        alignment=ft.MainAxisAlignment.START,
-        expand=True
-    )
+    rail = create_navigation_rail(on_tab_change)
 
     LIGHT_SEED_COLOR = ft.colors.LIGHT_BLUE
     DARK_SEED_COLOR = ft.colors.DEEP_PURPLE
@@ -333,43 +132,7 @@ async def main(page: ft.Page):
     page.theme = ft.theme.Theme(color_scheme_seed=LIGHT_SEED_COLOR, use_material3=True)
     page.dark_theme = ft.theme.Theme(color_scheme_seed=DARK_SEED_COLOR, use_material3=True)
 
-    def maximize(e):
-        page.window.maximized = not page.window.maximized
-        page.update()
-
-    def minimize(e):
-        page.window.minimized = True
-        page.update()
-
-    def close(e):
-        page.window.close()
-
-    title_bar = ft.Container(
-        content=ft.Row(
-            [
-                ft.WindowDragArea(
-                    ft.Container(
-                        content=ft.Text("WhatsApp Status Saver", style="headlineSmall"),
-                        padding=ft.padding.Padding(10, 10, 10, 10),
-                        expand=True,
-                    ),
-                    expand=True,
-                ),
-                ft.IconButton(
-                    icon=ft.icons.WB_SUNNY_OUTLINED if page.theme_mode == "light" else ft.icons.WB_SUNNY,
-                    on_click=theme_changed,
-                    tooltip="Toggle Theme"
-                ),
-                ft.IconButton(icon=ft.icons.MINIMIZE, on_click=minimize),
-                ft.IconButton(icon=ft.icons.CROP_DIN, on_click=maximize),
-                ft.IconButton(icon=ft.icons.CLOSE, on_click=close),
-            ],
-            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            expand=True
-        ),
-        bgcolor=ft.colors.SURFACE,
-        padding=ft.padding.Padding(10, 10, 10, 10),
-    )
+    title_bar = create_title_bar(page, theme_changed)
 
     page.add(
         ft.Column(
@@ -389,6 +152,3 @@ async def main(page: ft.Page):
 
     await show_content(0)  # Load initial content
     return page
-
-if __name__ == "__main__":
-    asyncio.run(ft.app(target=main))
