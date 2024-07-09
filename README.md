@@ -1,6 +1,6 @@
 # WhatsApp Desktop Status Saver
 
-WhatsApp Status Saver is a cross-platform desktop application designed to seamlessly download and manage WhatsApp statuses directly from the WhatsApp desktop client.
+WhatsApp Status Saver is a cross-platform desktop application designed to seamlessly download and manage WhatsApp statuses.
 
 
 ## Background
@@ -45,15 +45,6 @@ As an avid WhatsApp user, I often found myself wanting to save statuses. However
 5. **Asynchronous Operations**: File downloads and deletions are handled asynchronously to prevent UI freezing.
 6. **Local Storage**: Downloaded statuses are saved to a user-specified directory, with the default set to a 'WhatsappStatuses' folder in the user's Downloads directory.
 
-
-</br>
-It then presents these statuses in an easy-to-navigate interface, allowing you to preview and save them with just a click.
-
-1. The app reads statuses from the WhatsApp desktop app's local storage.
-2. It displays thumbnails of available statuses, categorized into photos and videos.
-3. Users can easily download statuses they want to keep or delete ones they've already saved.
-4. The app handles file operations asynchronously for smooth performance.
-
 ## Installation
 
 1. Clone this repository:
@@ -67,9 +58,12 @@ It then presents these statuses in an easy-to-navigate interface, allowing you t
 ## Requirements
 
 - Python 3.7+
-- Flet
-- Pillow
-- OpenCV
+- Flet (0.23.2)
+- Pillow (10.4.0)
+- OpenCV Python (4.10.0.84)
+
+  
+For a complete list of dependencies, refer to the `requirements.txt` file.
 
 ## Compatibility
 
@@ -77,13 +71,6 @@ It then presents these statuses in an easy-to-navigate interface, allowing you t
 - **macOS**: Compatible with macOS 10.15 (Catalina) and later
 
 Note: The WhatsApp desktop app must be installed and logged in on your computer for this application to work.
-## Dependencies
-
-- Flet (0.23.2)
-- Pillow (10.4.0)
-- OpenCV Python (4.10.0.84)
-
-For a complete list of dependencies, refer to the `requirements.txt` file.
 
 ## Contributing
 
