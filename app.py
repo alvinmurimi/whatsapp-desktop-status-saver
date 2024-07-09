@@ -1,7 +1,7 @@
 import flet as ft
 import os
 import asyncio
-from config import load_settings, save_settings, WHATSAPP_STATUS_PATH
+from config import load_settings, save_settings, WHATSAPP_STATUS_PATH, THUMBNAIL_CACHE_DIR
 from ui import build_status_card, create_title_bar, create_navigation_rail
 from status_handler import load_statuses, download_status, delete_file
 
@@ -96,6 +96,16 @@ async def main(page: ft.Page):
         page.update()
 
     def show_settings():
+        async def clear_thumbnail_cache(e):
+            try:
+                for file in os.listdir(THUMBNAIL_CACHE_DIR):
+                    file_path = os.path.join(THUMBNAIL_CACHE_DIR, file)
+                    if os.path.isfile(file_path):
+                        os.unlink(file_path)
+                page.snack_bar = ft.SnackBar(ft.Text("Thumbnail cache cleared"), open=True)
+            except Exception as e:
+                page.snack_bar = ft.SnackBar(ft.Text(f"Error clearing cache: {str(e)}"), open=True)
+            page.update()
         def on_save_click(e):
             new_save_dir = save_dir_input.value
             settings["save_dir"] = new_save_dir
@@ -113,13 +123,13 @@ async def main(page: ft.Page):
         pick_directory_dialog = ft.FilePicker(on_result=pick_directory_result)
         save_dir_input = ft.TextField(value=save_dir, label="Save Directory", width=500, read_only=True)
         pick_directory_button = ft.ElevatedButton(text="Browse", on_click=lambda _: pick_directory_dialog.get_directory_path())
-
+        clear_cache_button = ft.ElevatedButton(text="Clear Thumbnail Cache", on_click=clear_thumbnail_cache)
         save_button = ft.ElevatedButton(text="Update", on_click=on_save_click)
 
         page.overlay.append(pick_directory_dialog)
 
         page_content.controls = [ft.Column(
-            controls=[ft.Row(controls=[save_dir_input, pick_directory_button], spacing=10), save_button],
+            controls=[ft.Row(controls=[save_dir_input, pick_directory_button], spacing=10), save_button, clear_cache_button],
             alignment=ft.MainAxisAlignment.START,
             spacing=20,
             expand=True
