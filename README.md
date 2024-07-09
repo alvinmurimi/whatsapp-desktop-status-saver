@@ -1,6 +1,6 @@
 # WhatsApp Desktop Status Saver
 
-WhatsApp Status Saver is a cross-platform desktop application designed to seamlessly download and manage WhatsApp statuses.
+WhatsApp Status Saver is a cross-platform desktop application designed to seamlessly download and manage statuses for WhatsApp desktop.
 
 <img src="screenshots/main.png" alt="Overview" width="550">
 
