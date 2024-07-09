@@ -43,7 +43,7 @@ As an avid WhatsApp user, I couldn't find an easy way to save statuses without e
 
 1. Clone this repository:
    
-   ```git clone https://github.com/alvinmurimi/WhatsApp-Desktop-Status.git```
+   ```git clone https://github.com/alvinmurimi/whatsapp-desktop-status-saver.git```
 
 3. Install the required dependencies:
    
@@ -70,7 +70,7 @@ For a complete list of dependencies, refer to the `requirements.txt` file.
 Note: The WhatsApp desktop app must be installed and logged in on your computer for this application to work.
 
 ## Contributing
-Contributions, issues, bug reports and feature requests are welcome! Feel free to check the [issues page](https://github.com/alvinmurimi/WhatsApp-Desktop-Status/issues).
+Contributions, issues, bug reports and feature requests are welcome! Feel free to check the [issues page](https://github.com/alvinmurimi/whatsapp-desktop-status-saver/issues).
 
 ## License
 
