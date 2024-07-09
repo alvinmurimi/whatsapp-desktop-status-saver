@@ -4,16 +4,22 @@ from utils import get_cached_thumbnail
 import asyncio
 import os
 
-def build_status_card(file_path, is_download_section, save_dir, on_action):
+def build_status_card(file_path, is_download_section, save_dir, on_action, on_delete=None):
     file_name = os.path.basename(file_path)
     thumbnail_path = get_cached_thumbnail(file_path)
     
     async def handle_button_click(_):
-        if is_download_section:
-            result = await delete_file(file_path)
-        else:
-            result = await download_status(file_path, save_dir)
-        on_action(result)
+        try:
+            if is_download_section:
+                result = await delete_file(file_path)
+                if "Deleted" in result and on_delete:
+                    await on_delete()
+            else:
+                result = await download_status(file_path, save_dir)
+            on_action(result)
+        except Exception as e:
+            error_message = f"An error occurred: {str(e)}"
+            on_action(error_message)
 
     return ft.Container(
         content=ft.Column(
