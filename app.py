@@ -149,11 +149,11 @@ async def main(page: ft.Page):
         page.theme_mode = new_theme_mode
         page.update()
 
-    LIGHT_SEED_COLOR = ft.colors.LIGHT_BLUE
-    DARK_SEED_COLOR = ft.colors.DEEP_PURPLE
+    LIGHT_SEED_COLOR = ft.Colors.LIGHT_BLUE
+    DARK_SEED_COLOR = ft.Colors.DEEP_PURPLE
 
-    page.theme = ft.theme.Theme(color_scheme_seed=LIGHT_SEED_COLOR, use_material3=True)
-    page.dark_theme = ft.theme.Theme(color_scheme_seed=DARK_SEED_COLOR, use_material3=True)
+    page.theme = ft.Theme(color_scheme_seed=LIGHT_SEED_COLOR, use_material3=True)
+    page.dark_theme = ft.Theme(color_scheme_seed=DARK_SEED_COLOR, use_material3=True)
 
     async def on_tab_change(e):
         await show_content(e.control.selected_index, page_num=1)

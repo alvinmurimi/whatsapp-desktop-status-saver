@@ -1,4 +1,3 @@
-import asyncio
 import sys
 
 import flet as ft
@@ -15,4 +14,4 @@ def validate_python_version():
 
 if __name__ == "__main__":
     validate_python_version()
-    asyncio.run(ft.app(target=main))
+    ft.run(main)

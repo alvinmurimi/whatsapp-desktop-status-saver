@@ -29,7 +29,7 @@ def build_status_card(file_path, is_download_section, save_dir, on_action, on_de
                         src=thumbnail_path,
                         width=140,
                         height=140,
-                        fit=ft.ImageFit.COVER
+                        fit=ft.BoxFit.COVER
                     ),
                     width=140,
                     height=140,
@@ -38,7 +38,7 @@ def build_status_card(file_path, is_download_section, save_dir, on_action, on_de
                     controls=[
                         ft.IconButton(
                             icon=ft.icons.DELETE if is_download_section else ft.icons.SAVE_ALT,
-                            icon_color=ft.colors.RED if is_download_section else ft.colors.TEAL,
+                            icon_color=ft.Colors.RED if is_download_section else ft.Colors.TEAL,
                             tooltip="Delete" if is_download_section else "Download",
                             on_click=handle_button_click,
                         ),
@@ -51,7 +51,7 @@ def build_status_card(file_path, is_download_section, save_dir, on_action, on_de
         ),
         width=150,
         height=200,
-        border=ft.border.all(1, ft.colors.with_opacity(0.1, ft.colors.TRANSPARENT)),
+        border=ft.border.all(1, ft.Colors.with_opacity(0.1, ft.Colors.TRANSPARENT)),
         border_radius=ft.border_radius.all(10),
         padding=5,
     )
@@ -91,7 +91,7 @@ def create_title_bar(page, theme_changed):
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             expand=True
         ),
-        bgcolor=ft.colors.SURFACE,
+        bgcolor=ft.Colors.SURFACE,
         padding=ft.padding.Padding(10, 10, 10, 10),
     )
 
