@@ -21,7 +21,7 @@ As an avid WhatsApp user, I couldn't find an easy way to save statuses without e
 
 ### Core Technologies
 
-- **Python 3.7+**: Foundation of the application for its versatility and rich ecosystem.
+- **Python 3.10+**: Foundation of the application for its versatility and rich ecosystem.
 - **Flet**: Framework for building interactive multi-platform applications using Flutter, enabling a responsive UI with Python.
 - **asyncio**: Handles asynchronous operations for smooth performance during file operations and UI updates.
 
@@ -42,25 +42,45 @@ As an avid WhatsApp user, I couldn't find an easy way to save statuses without e
 ## Installation
 
 1. Clone this repository:
-   
-   ```git clone https://github.com/alvinmurimi/whatsapp-desktop-status-saver.git```
+
+   ```bash
+   git clone https://github.com/alvinmurimi/whatsapp-desktop-status-saver.git
+   cd whatsapp-desktop-status-saver
+   ```
+
+2. Create and activate a virtual environment:
+
+   ```powershell
+   py -3.14 -m venv venv
+   .\venv\Scripts\Activate.ps1
+   ```
 
 3. Install the required dependencies:
-   
-   ```pip install -r requirements.txt```
 
-5. Run the application:
-   
-   ```python main.py``` or  ```flet run main.py```
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. Run the application:
+
+   ```bash
+   python main.py
+   ```
+
+   Or with the Flet CLI:
+
+   ```bash
+   flet run main.py
+   ```
 ## Requirements
 
-- Python 3.7+
-- Flet (0.23.2)
-- Pillow (10.4.0)
-- OpenCV Python (4.10.0.84)
+- Python 3.10 to 3.14
+- Flet (0.83.1)
+- Pillow (12.1.1)
+- OpenCV Python (4.13.0.92)
 
   
-For a complete list of dependencies, refer to the `requirements.txt` file.
+For a complete list of direct runtime dependencies, refer to the `requirements.txt` file.
 
 ## Compatibility
 
