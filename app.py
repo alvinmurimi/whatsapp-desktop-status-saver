@@ -181,6 +181,7 @@ async def main(page: ft.Page):
         diagnostics = get_whatsapp_storage_diagnostics()
         known_candidates = "\n".join(diagnostics["known_candidates"])
         package_root_exists = os.path.exists(diagnostics["package_root"])
+        rail.visible = False
 
         page_content.controls = [
             ft.Container(
@@ -203,16 +204,38 @@ async def main(page: ft.Page):
                             else "WhatsApp Desktop does not appear to be installed in the expected location."
                         ),
                         ft.Text("Expected status cache path:"),
-                        ft.SelectionArea(ft.Text(diagnostics["selected_status_path"])),
+                        ft.Container(
+                            content=ft.Text(
+                                diagnostics["selected_status_path"],
+                                selectable=True,
+                            ),
+                            padding=12,
+                            border_radius=8,
+                            bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+                        ),
                         ft.Text("Known checked locations:"),
-                        ft.SelectionArea(ft.Text(known_candidates)),
-                        ft.Text("You can still change the save folder in Settings, but status discovery will stay empty until WhatsApp exposes a readable media cache again."),
+                        ft.Container(
+                            content=ft.Text(
+                                known_candidates,
+                                selectable=True,
+                            ),
+                            padding=12,
+                            border_radius=8,
+                            bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+                        ),
+                        ft.Text(
+                            "You can still change the save folder in Settings, but status discovery "
+                            "will stay empty until WhatsApp exposes a readable media cache again."
+                        ),
                     ],
                     spacing=10,
-                    expand=True,
+                    tight=True,
                 ),
-                padding=20,
-                expand=True,
+                padding=24,
+                margin=20,
+                border_radius=16,
+                bgcolor=ft.Colors.with_opacity(0.03, ft.Colors.ON_SURFACE),
+                width=900,
             )
         ]
         page.update()
