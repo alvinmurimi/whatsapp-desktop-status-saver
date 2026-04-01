@@ -37,7 +37,7 @@ def build_status_card(file_path, is_download_section, save_dir, on_action, on_de
                 ft.Row(
                     controls=[
                         ft.IconButton(
-                            icon=ft.icons.DELETE if is_download_section else ft.icons.SAVE_ALT,
+                            icon=ft.Icons.DELETE if is_download_section else ft.Icons.SAVE_ALT,
                             icon_color=ft.Colors.RED if is_download_section else ft.Colors.TEAL,
                             tooltip="Delete" if is_download_section else "Download",
                             on_click=handle_button_click,
@@ -80,13 +80,13 @@ def create_title_bar(page, theme_changed):
                     expand=True,
                 ),
                 ft.IconButton(
-                    icon=ft.icons.WB_SUNNY_OUTLINED if page.theme_mode == "light" else ft.icons.WB_SUNNY,
+                    icon=ft.Icons.WB_SUNNY_OUTLINED if page.theme_mode == "light" else ft.Icons.WB_SUNNY,
                     on_click=theme_changed,
                     tooltip="Toggle Theme"
                 ),
-                ft.IconButton(icon=ft.icons.MINIMIZE, on_click=minimize),
-                ft.IconButton(icon=ft.icons.CROP_DIN, on_click=maximize),
-                ft.IconButton(icon=ft.icons.CLOSE, on_click=close),
+                ft.IconButton(icon=ft.Icons.MINIMIZE, on_click=minimize),
+                ft.IconButton(icon=ft.Icons.CROP_DIN, on_click=maximize),
+                ft.IconButton(icon=ft.Icons.CLOSE, on_click=close),
             ],
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             expand=True
@@ -104,16 +104,16 @@ def create_navigation_rail(on_tab_change):
         group_alignment=-0.9,
         destinations=[
             ft.NavigationRailDestination(
-                icon=ft.icons.PHOTO_CAMERA, selected_icon=ft.icons.PHOTO_CAMERA, label="Photos"
+                icon=ft.Icons.PHOTO_CAMERA, selected_icon=ft.Icons.PHOTO_CAMERA, label="Photos"
             ),
             ft.NavigationRailDestination(
-                icon=ft.icons.VIDEOCAM, selected_icon=ft.icons.VIDEOCAM, label="Videos",
+                icon=ft.Icons.VIDEOCAM, selected_icon=ft.Icons.VIDEOCAM, label="Videos",
             ),
             ft.NavigationRailDestination(
-                icon=ft.icons.FOLDER, selected_icon=ft.icons.FOLDER, label="Downloads",
+                icon=ft.Icons.FOLDER, selected_icon=ft.Icons.FOLDER, label="Downloads",
             ),
             ft.NavigationRailDestination(
-                icon=ft.icons.SETTINGS, selected_icon=ft.icons.SETTINGS, label="Settings",
+                icon=ft.Icons.SETTINGS, selected_icon=ft.Icons.SETTINGS, label="Settings",
             ),
         ],
         on_change=on_tab_change
