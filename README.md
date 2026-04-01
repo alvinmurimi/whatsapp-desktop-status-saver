@@ -74,45 +74,31 @@ On Windows, the app can:
    flet run main.py
    ```
 
-## Windows Executable Bundle
+## Download for Windows
 
-For users who do not want to install Python manually, this repository now includes a Windows bundle build path.
+If you just want to use the app, download the latest Windows build here:
 
-- Local build script: `build_windows_release.ps1`
-- GitHub release workflow: `.github/workflows/windows-release.yml`
+- [Download WhatsApp Status Saver for Windows](https://github.com/alvinmurimi/whatsapp-desktop-status-saver/releases/latest/download/WhatsAppStatusSaver-windows-x64.zip)
 
-### Build Locally
+Extract the zip and run `WhatsAppStatusSaver.exe`.
+You do not need to install Python.
 
-1. Activate your virtual environment:
+## Build Windows Bundle
 
-   ```powershell
-   .\venv\Scripts\Activate.ps1
-   ```
+If you want to build the Windows app yourself:
 
-2. Run the Windows bundle script:
+```powershell
+.\venv\Scripts\Activate.ps1
+.\build_windows_release.ps1 -PythonExe .\venv\Scripts\python.exe -Version 0.1.0
+```
 
-   ```powershell
-   .\build_windows_release.ps1 -PythonExe .\venv\Scripts\python.exe -Version 0.1.0
-   ```
+Output:
+- `output\release\WhatsAppStatusSaver`
+- `output\release\WhatsAppStatusSaver-windows-x64.zip`
 
-3. Find the generated artifacts in:
+Upload `output\release\WhatsAppStatusSaver-windows-x64.zip` to a GitHub Release to distribute it.
 
-   - `output\release\WhatsAppStatusSaver`
-   - `output\release\WhatsAppStatusSaver-windows-x64.zip`
-
-Users can extract the zip and run `WhatsAppStatusSaver.exe` directly without installing Python.
-
-### Upload to GitHub
-
-The simplest distribution path is a GitHub Release asset:
-
-1. Push your changes and create a version tag.
-2. Open the repository's **Releases** page on GitHub.
-3. Draft a new release for that tag.
-4. Upload `output\release\WhatsAppStatusSaver-windows-x64.zip` in the release assets area.
-5. Publish the release.
-
-The included workflow can also build the Windows bundle and attach the zip to a GitHub Release automatically.
+This repo also includes a GitHub Actions workflow at `.github/workflows/windows-release.yml` for release builds.
 
 ## Requirements
 
