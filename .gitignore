@@ -3,6 +3,8 @@ venv/
 
 # Application build files
 build/
+output/
+*.spec
 
 # Python cache files
 __pycache__/

@@ -1,0 +1,39 @@
+name: Windows Release Bundle
+
+on:
+  workflow_dispatch:
+  release:
+    types:
+      - published
+
+jobs:
+  build-windows-bundle:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Build Windows bundle
+        shell: pwsh
+        run: |
+          .\build_windows_release.ps1 -PythonExe python -Version "${{ github.event.release.tag_name || '0.0.0' }}"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WhatsAppStatusSaver-windows-x64
+          path: output/release/WhatsAppStatusSaver-windows-x64.zip
+
+      - name: Attach bundle to GitHub release
+        if: github.event_name == 'release'
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" output/release/WhatsAppStatusSaver-windows-x64.zip --clobber
