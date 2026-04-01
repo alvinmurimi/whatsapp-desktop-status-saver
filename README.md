@@ -1,47 +1,48 @@
 # WhatsApp Desktop Status Saver
 
-WhatsApp Status Saver is a cross-platform desktop application designed to seamlessly download and manage statuses for WhatsApp desktop.
+WhatsApp Desktop Status Saver is a Python desktop app for browsing and saving WhatsApp statuses from a logged-in WhatsApp Desktop session.
 
 <img src="screenshots/main.png" alt="Overview" width="550">
 
-## Background
+## What It Does
 
-As an avid WhatsApp user, I couldn't find an easy way to save statuses without emulators or complex workarounds, so I developed this simple, user-friendly app to do the job.
+- Shows photo and video statuses in separate sections
+- Lets you save statuses to a folder you choose
+- Keeps downloaded items in a dedicated Downloads tab
+- Generates thumbnails for quick browsing
+- Supports light and dark mode
 
-## Key Features
+## How Status Discovery Works
 
-- **Cross-platform Support**: Works on both Windows and macOS
-- **Intuitive UI**: Clean, responsive interface for easy navigation
-- **Media Categorization**: Separate sections for photos and videos
-- **Thumbnail Previews**: Quick visual browsing of available statuses
-- **One-Click Save**: Effortlessly download statuses to your chosen directory
-- **Theme Options**: Toggle between light and dark modes for comfortable viewing
-- **Efficient File Management**: Delete saved statuses directly from the app
+Modern WhatsApp Desktop builds on Windows no longer reliably expose statuses through the old `LocalState\\shared\\transfers` folder alone.
+
+This app now supports two discovery paths:
+
+1. **Modern Windows path**
+   Reads WhatsApp Desktop's WebView storage and extracts status media metadata from the IndexedDB message store.
+2. **Legacy fallback**
+   Falls back to the older temporary media folder approach when available.
+
+On Windows, the app can:
+
+- find current status message records from WhatsApp's WebView data
+- resolve media URLs and cache the media locally
+- generate thumbnails in the background
+- keep a local status index cache so repeat launches are much faster
+
 ## Technical Stack
 
-### Core Technologies
-
-- **Python 3.10+**: Foundation of the application for its versatility and rich ecosystem.
-- **Flet**: Framework for building interactive multi-platform applications using Flutter, enabling a responsive UI with Python.
-- **asyncio**: Handles asynchronous operations for smooth performance during file operations and UI updates.
-
-### Key Libraries
-
-- **Pillow (PIL Fork)**: Image processing for creating and manipulating thumbnails.
-- **OpenCV (cv2)**: Video processing to extract thumbnail frames from video statuses.
-
-## How It Works
-
-1. **Status Discovery**: Scans the WhatsApp desktop client's local storage directory where statuses are temporarily cached.
-2. **File Categorization**: Sorts statuses into photos and videos based on file extensions.
-3. **Thumbnail Generation**: Uses Pillow for images and OpenCV for videos to create thumbnails.
-4. **UI Rendering**: Flet is used to create the user interface.
-5. **Asynchronous Operations**: Handles file downloads and deletions asynchronously to prevent UI freezing.
-6. **Local Storage**: Saves downloaded statuses to a user-specified directory; default set to a 'WhatsappStatuses' folder in the user's Downloads directory.
+- **Python** for the application runtime
+- **Flet** for the desktop UI
+- **asyncio** for non-blocking UI tasks
+- **Pillow** for image thumbnails
+- **OpenCV** for video thumbnails
+- **cryptography** for WhatsApp media decryption when needed
+- **ccl_chromium_reader** for reading Chromium/WebView IndexedDB data on Windows
 
 ## Installation
 
-1. Clone this repository:
+1. Clone the repository:
 
    ```bash
    git clone https://github.com/alvinmurimi/whatsapp-desktop-status-saver.git
@@ -55,42 +56,94 @@ As an avid WhatsApp user, I couldn't find an easy way to save statuses without e
    .\venv\Scripts\Activate.ps1
    ```
 
-3. Install the required dependencies:
+3. Install runtime dependencies:
 
    ```bash
    pip install -r requirements.txt
    ```
 
-4. Run the application:
+4. Launch the app:
 
    ```bash
    python main.py
    ```
 
-   Or with the Flet CLI:
+   Or:
 
    ```bash
    flet run main.py
    ```
+
+## Windows Executable Bundle
+
+For users who do not want to install Python manually, this repository now includes a Windows bundle build path.
+
+- Local build script: `build_windows_release.ps1`
+- GitHub release workflow: `.github/workflows/windows-release.yml`
+
+### Build Locally
+
+1. Activate your virtual environment:
+
+   ```powershell
+   .\venv\Scripts\Activate.ps1
+   ```
+
+2. Run the Windows bundle script:
+
+   ```powershell
+   .\build_windows_release.ps1 -PythonExe .\venv\Scripts\python.exe -Version 0.1.0
+   ```
+
+3. Find the generated artifacts in:
+
+   - `output\release\WhatsAppStatusSaver`
+   - `output\release\WhatsAppStatusSaver-windows-x64.zip`
+
+Users can extract the zip and run `WhatsAppStatusSaver.exe` directly without installing Python.
+
+### Upload to GitHub
+
+The simplest distribution path is a GitHub Release asset:
+
+1. Push your changes and create a version tag.
+2. Open the repository's **Releases** page on GitHub.
+3. Draft a new release for that tag.
+4. Upload `output\release\WhatsAppStatusSaver-windows-x64.zip` in the release assets area.
+5. Publish the release.
+
+The included workflow can also build the Windows bundle and attach the zip to a GitHub Release automatically.
+
 ## Requirements
 
 - Python 3.10 to 3.14
-- Flet (0.83.1)
-- Pillow (12.1.1)
-- OpenCV Python (4.13.0.92)
+- WhatsApp Desktop installed and logged in
+- Windows 10 or Windows 11 for the modern WebView-backed status extraction flow
 
-  
-For a complete list of direct runtime dependencies, refer to the `requirements.txt` file.
+For the exact runtime dependency list, see [requirements.txt](requirements.txt).
 
 ## Compatibility
 
-   - **Windows**: Compatible with Windows 10 and 11
-   - **macOS**: Compatible with macOS 10.15 (Catalina) and later
+- **Windows**: Best-supported path. Modern WhatsApp Desktop builds are handled through WebView storage parsing.
+- **macOS**: Legacy folder-based discovery may work depending on the installed WhatsApp build, but the newer Windows WebView extraction path is the primary supported implementation right now.
 
-Note: The WhatsApp desktop app must be installed and logged in on your computer for this application to work.
+## Usage
+
+1. Open WhatsApp Desktop and view the statuses you want available in the saver.
+2. Start this app.
+3. Browse Photos or Videos.
+4. Click the save button on any item to copy it into your configured save folder.
+5. Use the Downloads tab to review or delete items you already saved.
+
+## Limitations
+
+- The app depends on WhatsApp Desktop's current local storage behavior, which can change across releases.
+- First-time indexing or cache rebuilds can be noticeably slower than later launches.
+- If WhatsApp removes or changes local media/session storage formats again, the discovery code may need to be updated.
 
 ## Contributing
-Contributions, issues, bug reports and feature requests are welcome! Feel free to check the [issues page](https://github.com/alvinmurimi/whatsapp-desktop-status-saver/issues).
+
+Issues, bug reports, and pull requests are welcome. You can open an issue at the [issues page](https://github.com/alvinmurimi/whatsapp-desktop-status-saver/issues).
 
 ## License
 
@@ -98,4 +151,4 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ## Disclaimer
 
-This application is intended for personal use only. Users are responsible for respecting the privacy and copyright of content creators when saving and using WhatsApp statuses.
+This application is intended for personal use only. Respect the privacy, consent, and copyright expectations around any media you save.
