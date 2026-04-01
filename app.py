@@ -1,7 +1,13 @@
 import flet as ft
 import os
 import asyncio
-from config import load_settings, save_settings, WHATSAPP_STATUS_PATH, THUMBNAIL_CACHE_DIR
+from config import (
+    load_settings,
+    save_settings,
+    WHATSAPP_STATUS_PATH,
+    THUMBNAIL_CACHE_DIR,
+    get_whatsapp_storage_diagnostics,
+)
 from ui import build_status_card, create_title_bar, create_navigation_rail
 from status_handler import load_statuses, download_status, delete_file
 
@@ -143,21 +149,16 @@ async def main(page: ft.Page):
         page.theme_mode = new_theme_mode
         page.update()
 
-    if not os.path.exists(WHATSAPP_STATUS_PATH):
-        page.add(ft.Text("WhatsApp status folder not found."))
-        return
-
-    async def on_tab_change(e):
-        await show_content(e.control.selected_index, page_num=1)
-
-    rail = create_navigation_rail(on_tab_change)
-
     LIGHT_SEED_COLOR = ft.colors.LIGHT_BLUE
     DARK_SEED_COLOR = ft.colors.DEEP_PURPLE
 
     page.theme = ft.theme.Theme(color_scheme_seed=LIGHT_SEED_COLOR, use_material3=True)
     page.dark_theme = ft.theme.Theme(color_scheme_seed=DARK_SEED_COLOR, use_material3=True)
 
+    async def on_tab_change(e):
+        await show_content(e.control.selected_index, page_num=1)
+
+    rail = create_navigation_rail(on_tab_change)
     title_bar = create_title_bar(page, theme_changed)
 
     page.add(
@@ -175,6 +176,47 @@ async def main(page: ft.Page):
             expand=True
         )
     )
+
+    if not os.path.exists(WHATSAPP_STATUS_PATH):
+        diagnostics = get_whatsapp_storage_diagnostics()
+        known_candidates = "\n".join(diagnostics["known_candidates"])
+        package_root_exists = os.path.exists(diagnostics["package_root"])
+
+        page_content.controls = [
+            ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Text(
+                            "WhatsApp status folder not found.",
+                            style=ft.TextThemeStyle.HEADLINE_SMALL,
+                        ),
+                        ft.Text(
+                            "This app was originally built for an older WhatsApp Desktop layout "
+                            "that exposed temporary status files in a transfers folder."
+                        ),
+                        ft.Text(
+                            "On this machine, the WhatsApp package is installed, but that cache "
+                            "folder is not present. Newer builds appear to store data in WebView "
+                            "cache/session storage instead, so there may be no direct folder for "
+                            "this app to scan."
+                            if package_root_exists
+                            else "WhatsApp Desktop does not appear to be installed in the expected location."
+                        ),
+                        ft.Text("Expected status cache path:"),
+                        ft.SelectionArea(ft.Text(diagnostics["selected_status_path"])),
+                        ft.Text("Known checked locations:"),
+                        ft.SelectionArea(ft.Text(known_candidates)),
+                        ft.Text("You can still change the save folder in Settings, but status discovery will stay empty until WhatsApp exposes a readable media cache again."),
+                    ],
+                    spacing=10,
+                    expand=True,
+                ),
+                padding=20,
+                expand=True,
+            )
+        ]
+        page.update()
+        return page
 
     await show_content(0)  # Load initial content
     return page

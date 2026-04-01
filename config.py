@@ -5,12 +5,59 @@ import platform
 # Determine the operating system
 SYSTEM = platform.system()
 
+WINDOWS_PACKAGE_ROOT = os.path.expandvars(
+    r"%userprofile%\AppData\Local\Packages\5319275A.WhatsAppDesktop_cv1g1gvanyjgm"
+)
+WINDOWS_STATUS_CANDIDATES = [
+    os.path.join(WINDOWS_PACKAGE_ROOT, "LocalState", "shared", "transfers"),
+    os.path.join(WINDOWS_PACKAGE_ROOT, "LocalState", "shared"),
+]
+MACOS_STATUS_CANDIDATES = [
+    os.path.expanduser(
+        "~/Library/Containers/net.whatsapp.WhatsApp/Data/Library/Application Support/WhatsApp/shared/transfers"
+    )
+]
+
+
+def _first_existing_path(paths):
+    for path in paths:
+        if os.path.exists(path):
+            return path
+    return paths[0]
+
+
+def get_whatsapp_status_path():
+    if SYSTEM == "Windows":
+        return _first_existing_path(WINDOWS_STATUS_CANDIDATES)
+    if SYSTEM == "Darwin":
+        return _first_existing_path(MACOS_STATUS_CANDIDATES)
+    raise NotImplementedError(f"Unsupported operating system: {SYSTEM}")
+
+
+def get_whatsapp_storage_diagnostics():
+    if SYSTEM == "Windows":
+        return {
+            "package_root": WINDOWS_PACKAGE_ROOT,
+            "selected_status_path": get_whatsapp_status_path(),
+            "known_candidates": WINDOWS_STATUS_CANDIDATES,
+        }
+    if SYSTEM == "Darwin":
+        return {
+            "package_root": os.path.expanduser(
+                "~/Library/Containers/net.whatsapp.WhatsApp"
+            ),
+            "selected_status_path": get_whatsapp_status_path(),
+            "known_candidates": MACOS_STATUS_CANDIDATES,
+        }
+    raise NotImplementedError(f"Unsupported operating system: {SYSTEM}")
+
+
 # Default paths and settings
 if SYSTEM == "Windows":
-    WHATSAPP_STATUS_PATH = os.path.expandvars(r'%userprofile%\AppData\Local\Packages\5319275A.WhatsAppDesktop_cv1g1gvanyjgm\LocalState\shared\transfers')
+    WHATSAPP_STATUS_PATH = get_whatsapp_status_path()
     SETTINGS_DIR = os.path.join(os.path.expanduser('~'), 'AppData', 'Local', 'WhatsAppStatusSaver')
 elif SYSTEM == "Darwin":  # macOS
-    WHATSAPP_STATUS_PATH = os.path.expanduser('~/Library/Containers/net.whatsapp.WhatsApp/Data/Library/Application Support/WhatsApp/shared/transfers')
+    WHATSAPP_STATUS_PATH = get_whatsapp_status_path()
     SETTINGS_DIR = os.path.expanduser('~/Library/Application Support/WhatsAppStatusSaver')
 else:
     raise NotImplementedError(f"Unsupported operating system: {SYSTEM}")
