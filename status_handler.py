@@ -2,6 +2,8 @@ import os
 import shutil
 import asyncio
 import concurrent.futures
+import subprocess
+import sys
 from utils import get_all_status_files
 from webview_status_source import (
     StatusRecord,
@@ -98,6 +100,14 @@ def warm_status_previews(items):
     return warmed_paths
 
 
+def get_status_item_key(item):
+    if isinstance(item, StatusRecord):
+        return item.status_id
+    if isinstance(item, str):
+        return item
+    return str(item)
+
+
 async def download_status(file_path, dest_dir):
     try:
         if not os.path.exists(dest_dir):
@@ -112,6 +122,29 @@ async def download_status(file_path, dest_dir):
         return f"Downloaded: {os.path.basename(source_path)} to {dest_dir}"
     except Exception as e:
         return f"Error downloading: {str(e)}"
+
+
+async def open_status_item(item):
+    try:
+        file_path = item
+        if isinstance(item, StatusRecord):
+            file_path = await asyncio.to_thread(ensure_record_cached, item)
+            if not file_path:
+                return "Error opening: could not fetch the selected status"
+
+        if not isinstance(file_path, str) or not os.path.exists(file_path):
+            return "Error opening: file not found"
+
+        if sys.platform.startswith("win"):
+            await asyncio.to_thread(os.startfile, file_path)
+        elif sys.platform == "darwin":
+            await asyncio.to_thread(subprocess.run, ["open", file_path], check=True)
+        else:
+            await asyncio.to_thread(subprocess.run, ["xdg-open", file_path], check=True)
+
+        return f"Opened: {os.path.basename(file_path)}"
+    except Exception as e:
+        return f"Error opening: {str(e)}"
 
 async def delete_file(file_path):
     try:

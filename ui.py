@@ -1,9 +1,21 @@
 import flet as ft
-from status_handler import download_status, delete_file, get_status_preview_path
+from dataclasses import dataclass
+
+from status_handler import (
+    delete_file,
+    download_status,
+    get_status_preview_path,
+    open_status_item,
+)
 from utils import get_cached_thumbnail, get_existing_thumbnail
 import asyncio
-import os
 from webview_status_source import StatusRecord
+
+@dataclass
+class StatusCardHandle:
+    control: ft.Container
+    refresh_preview: callable
+
 
 def _build_preview_content(item, file_path, thumbnail_path):
     if thumbnail_path:
@@ -56,19 +68,29 @@ def build_status_card(
     on_delete=None,
     eager_thumbnail=True,
 ):
-    file_path = get_status_preview_path(item)
+    preview_host = ft.Container(
+        width=140,
+        height=140,
+        border_radius=ft.BorderRadius.all(8),
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+        ink=True,
+    )
 
-    thumbnail_path = None
-    if file_path:
-        thumbnail_path = (
-            get_cached_thumbnail(file_path)
-            if eager_thumbnail
-            else get_existing_thumbnail(file_path)
-        )
-    
+    def refresh_preview():
+        file_path = get_status_preview_path(item)
+        thumbnail_path = None
+        if file_path:
+            thumbnail_path = (
+                get_cached_thumbnail(file_path)
+                if eager_thumbnail
+                else get_existing_thumbnail(file_path)
+            )
+        preview_host.content = _build_preview_content(item, file_path, thumbnail_path)
+
     async def handle_button_click(_):
         try:
             if is_download_section:
+                file_path = get_status_preview_path(item)
                 result = await delete_file(file_path)
                 if "Deleted" in result and on_delete:
                     await on_delete()
@@ -79,14 +101,18 @@ def build_status_card(
             error_message = f"An error occurred: {str(e)}"
             on_action(error_message)
 
-    return ft.Container(
+    async def handle_open_click(_):
+        result = await open_status_item(item)
+        if result.startswith("Error"):
+            on_action(result)
+
+    preview_host.on_click = handle_open_click
+    refresh_preview()
+
+    control = ft.Container(
         content=ft.Column(
             [
-                ft.Container(
-                    content=_build_preview_content(item, file_path, thumbnail_path),
-                    width=140,
-                    height=140,
-                ),
+                preview_host,
                 ft.Row(
                     controls=[
                         ft.IconButton(
@@ -100,14 +126,15 @@ def build_status_card(
                 ),
             ],
             spacing=5,
+            tight=True,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         ),
         width=150,
-        height=170,
         border=ft.Border.all(1, ft.Colors.with_opacity(0.1, ft.Colors.TRANSPARENT)),
         border_radius=ft.BorderRadius.all(10),
         padding=5,
     )
+    return StatusCardHandle(control=control, refresh_preview=refresh_preview)
 
 def create_title_bar(page, theme_changed):
     return ft.Container(

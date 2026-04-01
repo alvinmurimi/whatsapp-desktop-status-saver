@@ -9,7 +9,12 @@ from config import (
     get_whatsapp_storage_diagnostics,
 )
 from ui import build_status_card, create_title_bar, create_navigation_rail
-from status_handler import count_statuses, load_statuses, warm_status_previews
+from status_handler import (
+    count_statuses,
+    get_status_item_key,
+    load_statuses,
+    warm_status_previews,
+)
 from utils import get_cached_thumbnail
 from webview_status_source import has_webview_status_source
 
@@ -31,25 +36,31 @@ def show_snack_bar(page, message):
     else:
         display_message = normalized_message
 
-    page.snack_bar = ft.SnackBar(
+    snackbar = ft.SnackBar(
         content=ft.Text(display_message),
-        open=True,
         duration=duration,
         behavior=ft.SnackBarBehavior.FLOATING,
         dismiss_direction=ft.DismissDirection.DOWN,
         show_close_icon=False,
     )
-    page.update()
+    dialogs = getattr(page, "_dialogs", None)
+    if dialogs is not None:
+        for dialog in list(dialogs.controls):
+            if isinstance(dialog, ft.SnackBar):
+                dialog.open = False
+                dialogs.controls.remove(dialog)
+        dialogs.update()
+    page.show_dialog(snackbar)
         
 async def main(page: ft.Page):
     MEDIA_BATCH_SIZE = 24
     PREVIEW_BATCH_SIZE = 8
-    LOAD_MORE_THRESHOLD_PX = 280
+    LOAD_MORE_THRESHOLD_PX = 160
 
     page.title = "WhatsApp Status Saver"
     page.window.width = 1200
     page.window.height = 800
-    page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
+    page.horizontal_alignment = ft.CrossAxisAlignment.STRETCH
     page.vertical_alignment = ft.MainAxisAlignment.START
     page.window.always_on_top = False
     page.window.title_bar_hidden = False
@@ -68,10 +79,11 @@ async def main(page: ft.Page):
 
     page_content = ft.Column(
         alignment=ft.MainAxisAlignment.START,
+        horizontal_alignment=ft.CrossAxisAlignment.START,
         expand=True,
         spacing=16,
         scroll=ft.ScrollMode.AUTO,
-        scroll_interval=80,
+        scroll_interval=10,
     )
     page_content.controls = [
         ft.Container(
@@ -106,7 +118,35 @@ async def main(page: ft.Page):
         "total_count": 0,
         "has_more": False,
         "is_loading_more": False,
+        "card_handles": {},
+        "footer_label": None,
     }
+
+    media_grid = ft.ResponsiveRow(
+        controls=[],
+        spacing=12,
+        run_spacing=12,
+    )
+    media_footer_label = ft.Text(
+        color=ft.Colors.ON_SURFACE_VARIANT,
+        text_align=ft.TextAlign.CENTER,
+    )
+    media_content = ft.Container(
+        content=ft.Column(
+            [
+                media_grid,
+                ft.Container(
+                    content=media_footer_label,
+                    padding=ft.padding.only(top=8, bottom=8),
+                    alignment=ft.Alignment(0, 0),
+                ),
+            ],
+            spacing=16,
+        ),
+        padding=16,
+        bgcolor=ft.Colors.SURFACE,
+    )
+    current_view["footer_label"] = media_footer_label
 
     def get_file_type(index):
         if index == 0:
@@ -138,59 +178,45 @@ async def main(page: ft.Page):
             )
         ]
 
-    def render_media_content(index):
-        file_type = current_view["file_type"]
-        items = current_view["items"]
-        total_count = current_view["total_count"]
-
-        if not items:
-            render_empty_state(file_type)
-            return
-
-        grid = ft.ResponsiveRow(
-            controls=[],
-            spacing=12,
-            run_spacing=12,
+    def update_media_footer():
+        footer_text = (
+            f"Showing {len(current_view['items'])} "
+            f"of {current_view['total_count']} {current_view['file_type']}"
         )
+        if current_view["is_loading_more"]:
+            footer_text = f"{footer_text} - Loading more..."
+        elif not current_view["has_more"]:
+            footer_text = f"{footer_text} - All loaded"
+        media_footer_label.value = footer_text
 
+    def ensure_media_content():
+        if not page_content.controls or page_content.controls[0] is not media_content:
+            page_content.controls = [media_content]
+
+    def reset_media_content():
+        media_grid.controls.clear()
+        current_view["card_handles"] = {}
+
+    def append_media_items(items):
         for item in items:
-            card = build_status_card(
+            item_key = get_status_item_key(item)
+            if item_key in current_view["card_handles"]:
+                continue
+
+            card_handle = build_status_card(
                 item,
                 False,
                 save_dir,
                 lambda result: show_snack_bar(page, result),
                 eager_thumbnail=False,
             )
-            card.col = {"sm": 6, "md": 4, "lg": 3, "xl": 2}
-            grid.controls.append(card)
+            card_handle.control.col = {"sm": 6, "md": 4, "lg": 3, "xl": 2}
+            media_grid.controls.append(card_handle.control)
+            current_view["card_handles"][item_key] = card_handle
 
-        footer_text = f"Showing {len(items)} of {total_count} {file_type}"
-        if current_view["is_loading_more"]:
-            footer_text = f"{footer_text} • Loading more..."
-        elif not current_view["has_more"]:
-            footer_text = f"{footer_text} • All loaded"
-
-        page_content.controls = [
-            ft.Container(
-                content=ft.Column(
-                    [
-                        grid,
-                        ft.Container(
-                            content=ft.Text(
-                                footer_text,
-                                color=ft.Colors.ON_SURFACE_VARIANT,
-                                text_align=ft.TextAlign.CENTER,
-                            ),
-                            padding=ft.padding.only(top=8, bottom=8),
-                            alignment=ft.Alignment(0, 0),
-                        ),
-                    ],
-                    spacing=16,
-                ),
-                padding=16,
-                bgcolor=ft.Colors.SURFACE,
-            )
-        ]
+    def render_media_content():
+        ensure_media_content()
+        update_media_footer()
 
     def render_downloads_content(items):
         if not items:
@@ -203,7 +229,7 @@ async def main(page: ft.Page):
             run_spacing=12,
         )
         for item in items:
-            card = build_status_card(
+            card_handle = build_status_card(
                 item,
                 True,
                 save_dir,
@@ -211,14 +237,16 @@ async def main(page: ft.Page):
                 on_delete=refresh_downloads,
                 eager_thumbnail=True,
             )
-            card.col = {"sm": 6, "md": 4, "lg": 3, "xl": 2}
-            grid.controls.append(card)
+            card_handle.control.col = {"sm": 6, "md": 4, "lg": 3, "xl": 2}
+            grid.controls.append(card_handle.control)
 
         page_content.controls = [
             ft.Container(
                 content=grid,
                 padding=16,
                 bgcolor=ft.Colors.SURFACE,
+                alignment=ft.Alignment(-1, -1),
+                expand=True,
             )
         ]
 
@@ -259,8 +287,16 @@ async def main(page: ft.Page):
         if current_view["token"] != load_token or current_view["index"] != index:
             return
 
-        render_media_content(index)
-        page.update()
+        refreshed = False
+        for item in items:
+            card_handle = current_view["card_handles"].get(get_status_item_key(item))
+            if not card_handle:
+                continue
+            card_handle.refresh_preview()
+            refreshed = True
+
+        if refreshed:
+            page.update()
 
     async def refresh_downloads():
         await show_content(2)
@@ -274,15 +310,14 @@ async def main(page: ft.Page):
             return
 
         current_view["is_loading_more"] = True
-        render_media_content(current_view["index"])
+        update_media_footer()
         page.update()
         try:
             await show_content(current_view["index"], append=True)
         finally:
             current_view["is_loading_more"] = False
-            if current_view["index"] in (0, 1):
-                render_media_content(current_view["index"])
-                page.update()
+            update_media_footer()
+            page.update()
 
     async def on_content_scroll(e: ft.OnScrollEvent):
         if current_view["index"] not in (0, 1):
@@ -319,6 +354,7 @@ async def main(page: ft.Page):
             current_view["total_count"] = 0
             current_view["has_more"] = False
             current_view["is_loading_more"] = False
+            reset_media_content()
             render_loading("Loading statuses..." if file_type != "downloads" else "Loading downloads...")
             page.update()
 
@@ -352,7 +388,9 @@ async def main(page: ft.Page):
             MEDIA_BATCH_SIZE,
             False,
         )
-        total_count = await asyncio.to_thread(count_statuses, file_type, save_dir)
+        total_count = current_view["total_count"]
+        if not append or total_count <= 0:
+            total_count = await asyncio.to_thread(count_statuses, file_type, save_dir)
 
         if current_view["token"] != load_token or current_view["index"] != index:
             return
@@ -365,8 +403,8 @@ async def main(page: ft.Page):
         current_view["loaded_count"] = len(current_view["items"])
         current_view["total_count"] = total_count
         current_view["has_more"] = current_view["loaded_count"] < total_count
-
-        render_media_content(index)
+        append_media_items(batch_items if append else current_view["items"])
+        render_media_content()
         page.update()
 
         preview_items = batch_items[:PREVIEW_BATCH_SIZE]
@@ -438,10 +476,13 @@ async def main(page: ft.Page):
                         clear_cache_button,
                     ],
                     alignment=ft.MainAxisAlignment.START,
+                    horizontal_alignment=ft.CrossAxisAlignment.START,
                     spacing=20,
                 ),
                 padding=24,
                 bgcolor=ft.Colors.SURFACE,
+                alignment=ft.Alignment(-1, -1),
+                expand=True,
             )
         ]
         page.update()
@@ -481,6 +522,7 @@ async def main(page: ft.Page):
                         page_content
                     ],
                     expand=True,
+                    vertical_alignment=ft.CrossAxisAlignment.START,
                 )
             ],
             expand=True
