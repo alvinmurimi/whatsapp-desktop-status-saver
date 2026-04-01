@@ -1,6 +1,9 @@
 # Runtime dependencies only.
 # These versions provide prebuilt wheels for current supported Python releases,
 # including Python 3.14 on Windows.
+Brotli==1.2.0
+ccl_chromium_reader @ git+https://github.com/cclgroupltd/ccl_chromium_reader.git@552516720761397c4d482908b6b8b08130b313a1
+cryptography==46.0.6
 flet==0.83.1
 opencv-python==4.13.0.92
 pillow==12.1.1

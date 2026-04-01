@@ -26,8 +26,7 @@ def get_all_status_files(file_type):
     return status_files
 
 def get_cached_thumbnail(file_path, size=(150, 150)):
-    file_hash = hashlib.md5(file_path.encode()).hexdigest()
-    cache_file = os.path.join(THUMBNAIL_CACHE_DIR, f"{file_hash}_{size[0]}x{size[1]}.png")
+    cache_file = get_thumbnail_cache_path(file_path, size)
     
     if os.path.exists(cache_file):
         return cache_file
@@ -38,6 +37,16 @@ def get_cached_thumbnail(file_path, size=(150, 150)):
         return cache_file
     
     return None
+
+
+def get_thumbnail_cache_path(file_path, size=(150, 150)):
+    file_hash = hashlib.md5(file_path.encode()).hexdigest()
+    return os.path.join(THUMBNAIL_CACHE_DIR, f"{file_hash}_{size[0]}x{size[1]}.png")
+
+
+def get_existing_thumbnail(file_path, size=(150, 150)):
+    cache_file = get_thumbnail_cache_path(file_path, size)
+    return cache_file if os.path.exists(cache_file) else None
 
 def create_thumbnail(file_path, size=(150, 150)):
     if file_path.lower().endswith(('.png', '.jpg', '.jpeg')):
