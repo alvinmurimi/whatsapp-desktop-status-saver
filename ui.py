@@ -36,7 +36,7 @@ def _build_preview_content(item, file_path, thumbnail_path):
         content=ft.Column(
             [
                 ft.Icon(
-                    name=ft.Icons.PLAY_CIRCLE_FILL if is_video else ft.Icons.IMAGE_OUTLINED,
+                    ft.Icons.PLAY_CIRCLE_FILL if is_video else ft.Icons.IMAGE_OUTLINED,
                     size=40,
                     color=ft.Colors.ON_SURFACE_VARIANT,
                 ),
