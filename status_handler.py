@@ -11,6 +11,7 @@ from webview_status_source import (
     get_cached_record_path,
     get_webview_status_files,
     get_webview_status_records,
+    invalidate_status_source_cache,
 )
 
 def _paginate(files, page=1, items_per_page=None):
@@ -29,6 +30,7 @@ def load_statuses(
     items_per_page=None,
     materialize=True,
     source_mode="desktop",
+    selected_web_profile=None,
 ):
     try:
         if file_type == "downloads":
@@ -48,6 +50,7 @@ def load_statuses(
             page=page,
             items_per_page=items_per_page,
             source_mode=source_mode,
+            selected_web_profile=selected_web_profile,
         )
         if webview_records:
             if materialize:
@@ -56,6 +59,7 @@ def load_statuses(
                     page=page,
                     items_per_page=items_per_page,
                     source_mode=source_mode,
+                    selected_web_profile=selected_web_profile,
                 )
             return webview_records
 
@@ -70,7 +74,7 @@ def load_statuses(
         return []
 
 
-def count_statuses(file_type, save_dir, source_mode="desktop"):
+def count_statuses(file_type, save_dir, source_mode="desktop", selected_web_profile=None):
     try:
         if file_type == "downloads":
             if not os.path.isdir(save_dir):
@@ -86,6 +90,7 @@ def count_statuses(file_type, save_dir, source_mode="desktop"):
             page=1,
             items_per_page=None,
             source_mode=source_mode,
+            selected_web_profile=selected_web_profile,
         )
         if webview_records:
             return len(webview_records)
@@ -126,6 +131,12 @@ def get_status_item_key(item):
     if isinstance(item, str):
         return item
     return str(item)
+
+
+def refresh_status_cache(source_mode="desktop", selected_web_profile=None):
+    invalidate_status_source_cache(source_mode, selected_web_profile)
+    if source_mode == "desktop":
+        get_all_status_files.cache_clear()
 
 
 async def download_status(file_path, dest_dir):

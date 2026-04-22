@@ -105,32 +105,40 @@ def _chrome_whatsapp_paths(profile_dir):
     }
 
 
-def get_chrome_whatsapp_sources():
-    sources = []
-    for profile_dir in _get_chrome_profile_dirs():
-        source = _chrome_whatsapp_paths(profile_dir)
-        if source["available"]:
-            sources.append(source)
-
-    sources.sort(
+def get_chrome_profiles():
+    profiles = [_chrome_whatsapp_paths(profile_dir) for profile_dir in _get_chrome_profile_dirs()]
+    profiles.sort(
         key=lambda source: os.path.getmtime(source["indexeddb_dir"])
         if os.path.isdir(source["indexeddb_dir"])
         else 0,
         reverse=True,
     )
-    return sources
+    return profiles
 
 
-def get_preferred_chrome_whatsapp_source():
-    sources = get_chrome_whatsapp_sources()
-    if sources:
-        return sources[0]
+def get_chrome_whatsapp_sources():
+    return [profile for profile in get_chrome_profiles() if profile["available"]]
+
+
+def get_preferred_chrome_profile(selected_profile_name=None):
+    profiles = get_chrome_profiles()
+    if selected_profile_name:
+        for profile in profiles:
+            if profile["profile_name"] == selected_profile_name:
+                return profile
+
+    available_profiles = [profile for profile in profiles if profile["available"]]
+    if available_profiles:
+        return available_profiles[0]
+
+    if profiles:
+        return profiles[0]
 
     default_profile_dir = os.path.join(CHROME_USER_DATA_ROOT, "Default")
     return _chrome_whatsapp_paths(default_profile_dir)
 
 
-def get_status_source_config(source_mode):
+def get_status_source_config(source_mode, selected_web_profile=None):
     if source_mode == "desktop":
         return {
             "key": "desktop",
@@ -142,7 +150,7 @@ def get_status_source_config(source_mode):
         }
 
     if source_mode == "web":
-        chrome_source = get_preferred_chrome_whatsapp_source()
+        chrome_source = get_preferred_chrome_profile(selected_web_profile)
         return {
             "key": f"chrome-{chrome_source['profile_name'].lower().replace(' ', '-')}",
             "label": "WhatsApp Web (Chrome)",
@@ -151,12 +159,13 @@ def get_status_source_config(source_mode):
             "legacy_status_path": "",
             "profile_name": chrome_source["profile_name"],
             "profile_dir": chrome_source["profile_dir"],
+            "available": chrome_source["available"],
         }
 
     raise ValueError(f"Unknown source mode: {source_mode}")
 
 
-def get_status_source_diagnostics(source_mode):
+def get_status_source_diagnostics(source_mode, selected_web_profile=None):
     if source_mode == "desktop":
         legacy_exists = os.path.exists(WHATSAPP_STATUS_PATH)
         webview_exists = os.path.isdir(WHATSAPP_WEBVIEW_INDEXEDDB_DIR)
@@ -171,18 +180,21 @@ def get_status_source_diagnostics(source_mode):
         }
 
     if source_mode == "web":
-        chrome_sources = get_chrome_whatsapp_sources()
-        selected_source = get_preferred_chrome_whatsapp_source()
+        chrome_profiles = get_chrome_profiles()
+        chrome_sources = [profile for profile in chrome_profiles if profile["available"]]
+        selected_source = get_preferred_chrome_profile(selected_web_profile)
         return {
             "mode": "web",
             "label": "WhatsApp Web (Chrome)",
-            "available": bool(chrome_sources),
+            "available": bool(selected_source["available"]),
             "chrome_installed": os.path.isdir(CHROME_USER_DATA_ROOT),
-            "profile_count": len(chrome_sources),
+            "profile_count": len(chrome_profiles),
             "profile_name": selected_source["profile_name"],
             "profile_dir": selected_source["profile_dir"],
             "indexeddb_dir": selected_source["indexeddb_dir"],
             "blob_dir": selected_source["blob_dir"],
+            "profiles": chrome_profiles,
+            "profiles_with_whatsapp": len(chrome_sources),
         }
 
     raise ValueError(f"Unknown source mode: {source_mode}")
@@ -213,6 +225,7 @@ def load_settings():
         "save_dir": DEFAULT_SAVE_DIR,
         "theme_mode": "light",
         "discovery_source": "desktop",
+        "web_profile": "",
     }
     if os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE, 'r') as f:

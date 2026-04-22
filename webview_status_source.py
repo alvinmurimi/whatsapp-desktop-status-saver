@@ -17,10 +17,7 @@ from cryptography.hazmat.primitives import hashes, padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-from config import (
-    STATUS_MEDIA_CACHE_DIR,
-    get_status_source_config,
-)
+from config import STATUS_MEDIA_CACHE_DIR, get_status_source_config
 
 try:
     from ccl_chromium_reader.ccl_chromium_indexeddb import (
@@ -98,8 +95,11 @@ class StatusRecord:
     source_blob_dir: str | None
 
 
-def has_webview_status_source(source_mode: str = "desktop") -> bool:
-    source_config = get_status_source_config(source_mode)
+def has_webview_status_source(
+    source_mode: str = "desktop",
+    selected_web_profile: str | None = None,
+) -> bool:
+    source_config = get_status_source_config(source_mode, selected_web_profile)
     return os.path.isdir(source_config["indexeddb_dir"])
 
 
@@ -108,6 +108,7 @@ def get_webview_status_files(
     page: int = 1,
     items_per_page: int | None = None,
     source_mode: str = "desktop",
+    selected_web_profile: str | None = None,
 ) -> list[str]:
     if file_type not in {"photos", "videos"}:
         return []
@@ -117,6 +118,7 @@ def get_webview_status_files(
         page=page,
         items_per_page=items_per_page,
         source_mode=source_mode,
+        selected_web_profile=selected_web_profile,
     )
     if not records:
         return []
@@ -156,13 +158,14 @@ def get_webview_status_records(
     page: int = 1,
     items_per_page: int | None = None,
     source_mode: str = "desktop",
+    selected_web_profile: str | None = None,
 ) -> list[StatusRecord]:
     if file_type not in {"photos", "videos"}:
         return []
 
     records = [
         record
-        for record in _load_all_status_records(source_mode)
+        for record in _load_all_status_records(source_mode, selected_web_profile)
         if record.kind == file_type
     ]
     if items_per_page is None or items_per_page <= 0:
@@ -173,8 +176,12 @@ def get_webview_status_records(
     return records[start:stop]
 
 
-def iter_status_records(file_type: str, source_mode: str = "desktop") -> Iterable[StatusRecord]:
-    for record in _load_all_status_records(source_mode):
+def iter_status_records(
+    file_type: str,
+    source_mode: str = "desktop",
+    selected_web_profile: str | None = None,
+) -> Iterable[StatusRecord]:
+    for record in _load_all_status_records(source_mode, selected_web_profile):
         if record.kind == file_type:
             yield record
 
@@ -210,13 +217,16 @@ def get_cached_record_path(record: StatusRecord) -> str | None:
     return cache_path if os.path.exists(cache_path) else None
 
 
-def _load_all_status_records(source_mode: str = "desktop") -> list[StatusRecord]:
+def _load_all_status_records(
+    source_mode: str = "desktop",
+    selected_web_profile: str | None = None,
+) -> list[StatusRecord]:
     global _STATUS_RECORD_CACHE
 
-    source_config = get_status_source_config(source_mode)
+    source_config = get_status_source_config(source_mode, selected_web_profile)
     source_key = source_config["key"]
 
-    if not has_webview_status_source(source_mode):
+    if not has_webview_status_source(source_mode, selected_web_profile):
         return []
 
     snapshot = _build_indexeddb_snapshot(source_config)
@@ -240,6 +250,21 @@ def _load_all_status_records(source_mode: str = "desktop") -> list[StatusRecord]
     _STATUS_RECORD_CACHE[source_key] = (snapshot, records)
     _write_cached_records(source_key, snapshot, records)
     return list(records)
+
+
+def invalidate_status_source_cache(
+    source_mode: str = "desktop",
+    selected_web_profile: str | None = None,
+) -> None:
+    source_config = get_status_source_config(source_mode, selected_web_profile)
+    source_key = source_config["key"]
+    _STATUS_RECORD_CACHE.pop(source_key, None)
+    index_cache_file = _index_cache_file_for_source(source_key)
+    if os.path.exists(index_cache_file):
+        try:
+            os.remove(index_cache_file)
+        except OSError:
+            pass
 
 
 def _load_records_from_message_store(source_config: dict) -> list[StatusRecord]:
