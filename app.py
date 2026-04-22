@@ -2,7 +2,9 @@ import flet as ft
 import os
 import asyncio
 from config import (
-    get_chrome_profiles,
+    get_web_profiles,
+    get_supported_web_browsers,
+    get_web_browser_label,
     load_settings,
     save_settings,
     THUMBNAIL_CACHE_DIR,
@@ -79,6 +81,9 @@ async def main(page: ft.Page):
     current_source = settings.get("discovery_source", "desktop")
     if current_source not in {"desktop", "web"}:
         current_source = "desktop"
+    current_web_browser = settings.get("web_browser", "chrome")
+    if current_web_browser not in get_supported_web_browsers():
+        current_web_browser = "chrome"
     current_web_profile = settings.get("web_profile", "")
 
     page_content = ft.Column(
@@ -127,9 +132,15 @@ async def main(page: ft.Page):
     }
 
     desktop_source_button = ft.ElevatedButton(content="Desktop")
-    web_source_button = ft.ElevatedButton(content="Web (Chrome)")
+    web_source_button = ft.ElevatedButton(content="Web")
+    web_browser_dropdown = ft.Dropdown(
+        label="Browser",
+        width=170,
+        dense=True,
+        visible=False,
+    )
     web_profile_dropdown = ft.Dropdown(
-        label="Chrome profile",
+        label="Browser profile",
         width=220,
         dense=True,
         visible=False,
@@ -162,12 +173,27 @@ async def main(page: ft.Page):
     current_view["footer_label"] = media_footer_label
 
     def get_available_web_profiles():
-        return get_chrome_profiles()
+        return get_web_profiles(current_web_browser)
+
+    def refresh_web_browser_dropdown():
+        supported_browsers = get_supported_web_browsers()
+        web_browser_dropdown.options = [
+            ft.dropdown.Option(key=browser, text=get_web_browser_label(browser))
+            for browser in supported_browsers
+        ]
+        if current_web_browser in supported_browsers:
+            web_browser_dropdown.value = current_web_browser
+        elif supported_browsers:
+            web_browser_dropdown.value = supported_browsers[0]
+        else:
+            web_browser_dropdown.value = None
+        web_browser_dropdown.visible = current_source == "web"
 
     def refresh_web_profile_dropdown():
         nonlocal current_web_profile
         profiles = get_available_web_profiles()
         option_values = [profile["profile_name"] for profile in profiles]
+        web_profile_dropdown.label = f"{get_web_browser_label(current_web_browser)} profile"
 
         web_profile_dropdown.options = [
             ft.dropdown.Option(
@@ -200,6 +226,7 @@ async def main(page: ft.Page):
     def refresh_source_buttons():
         desktop_source_button.disabled = current_source == "desktop"
         web_source_button.disabled = current_source == "web"
+        refresh_web_browser_dropdown()
         refresh_web_profile_dropdown()
 
     async def change_source(new_source):
@@ -213,6 +240,24 @@ async def main(page: ft.Page):
         refresh_source_buttons()
 
         if current_view["index"] in (0, 1):
+            await show_content(current_view["index"])
+        else:
+            page.update()
+
+    async def change_web_browser(e):
+        nonlocal current_web_browser, current_web_profile
+        selected_browser = e.control.value or "chrome"
+        if selected_browser == current_web_browser:
+            return
+
+        current_web_browser = selected_browser
+        current_web_profile = ""
+        settings["web_browser"] = current_web_browser
+        settings["web_profile"] = current_web_profile
+        save_settings(settings)
+        refresh_source_buttons()
+
+        if current_source == "web" and current_view["index"] in (0, 1):
             await show_content(current_view["index"])
         else:
             page.update()
@@ -237,6 +282,7 @@ async def main(page: ft.Page):
             await asyncio.to_thread(
                 refresh_status_cache,
                 current_source,
+                current_web_browser,
                 current_web_profile,
             )
         await show_content(current_view["index"])
@@ -254,15 +300,19 @@ async def main(page: ft.Page):
         if current_source == "desktop":
             return "WhatsApp Desktop"
         if current_web_profile:
-            return f"WhatsApp Web (Chrome - {current_web_profile})"
-        return "WhatsApp Web (Chrome)"
+            return (
+                f"WhatsApp Web ({get_web_browser_label(current_web_browser)} - "
+                f"{current_web_profile})"
+            )
+        return f"WhatsApp Web ({get_web_browser_label(current_web_browser)})"
 
     def render_empty_state(file_type):
         guidance = (
             f"No {file_type} available from {get_source_label()}."
             if current_source == "desktop"
             else f"No {file_type} available from {get_source_label()}. "
-            "Make sure you are logged in to web.whatsapp.com in Chrome and have opened statuses there."
+            f"Make sure you are logged in to web.whatsapp.com in "
+            f"{get_web_browser_label(current_web_browser)} and have opened statuses there."
         )
         page_content.controls = [
             ft.Container(
@@ -285,35 +335,40 @@ async def main(page: ft.Page):
         ]
 
     def render_source_unavailable():
-        diagnostics = get_status_source_diagnostics(current_source, current_web_profile)
+        diagnostics = get_status_source_diagnostics(
+            current_source,
+            current_web_browser,
+            current_web_profile,
+        )
         if current_source == "desktop":
             body = (
                 "WhatsApp Desktop could not be found on this machine. "
-                "Install WhatsApp Desktop or switch to Web (Chrome) above."
+                "Install WhatsApp Desktop or switch to Web above."
             )
             detail_lines = [
                 f"Desktop cache path: {diagnostics['selected_status_path']}",
                 f"Desktop WebView path: {diagnostics['webview_indexeddb_dir']}",
             ]
         else:
-            if not diagnostics["chrome_installed"]:
+            browser_label = diagnostics["browser_label"]
+            if not diagnostics["browser_installed"]:
                 body = (
-                    "Google Chrome does not appear to be installed on this machine. "
-                    "Install Chrome or switch back to WhatsApp Desktop above."
+                    f"{browser_label} does not appear to be installed on this machine. "
+                    "Install it or switch back to WhatsApp Desktop above."
                 )
             elif diagnostics["profile_count"] <= 0:
                 body = (
-                    "No Chrome profiles were found. Open Chrome once to create a profile, "
+                    f"No {browser_label} profiles were found. Open {browser_label} once to create a profile, "
                     "then log in to web.whatsapp.com."
                 )
             else:
                 body = (
-                    f"WhatsApp Web data was not found for the Chrome profile "
-                    f"'{diagnostics['profile_name']}'. Open Chrome with that profile, "
+                    f"WhatsApp Web data was not found for the {browser_label} profile "
+                    f"'{diagnostics['profile_name']}'. Open {browser_label} with that profile, "
                     "log in to web.whatsapp.com, then refresh or choose another profile."
                 )
             detail_lines = [
-                f"Chrome profile: {diagnostics['profile_name']}",
+                f"{browser_label} profile: {diagnostics['profile_name']}",
                 f"Expected IndexedDB path: {diagnostics['indexeddb_dir']}",
             ]
 
@@ -560,7 +615,11 @@ async def main(page: ft.Page):
             page.update()
             return
 
-        diagnostics = get_status_source_diagnostics(current_source, current_web_profile)
+        diagnostics = get_status_source_diagnostics(
+            current_source,
+            current_web_browser,
+            current_web_profile,
+        )
         if not diagnostics["available"]:
             if current_view["token"] != load_token or current_view["index"] != index:
                 return
@@ -581,6 +640,7 @@ async def main(page: ft.Page):
             MEDIA_BATCH_SIZE,
             False,
             current_source,
+            current_web_browser,
             current_web_profile,
         )
         total_count = current_view["total_count"]
@@ -590,6 +650,7 @@ async def main(page: ft.Page):
                 file_type,
                 save_dir,
                 current_source,
+                current_web_browser,
                 current_web_profile,
             )
 
@@ -718,6 +779,7 @@ async def main(page: ft.Page):
 
     desktop_source_button.on_click = lambda _: page.run_task(change_source, "desktop")
     web_source_button.on_click = lambda _: page.run_task(change_source, "web")
+    web_browser_dropdown.on_change = change_web_browser
     web_profile_dropdown.on_change = change_web_profile
     refresh_source_buttons()
 
@@ -731,6 +793,7 @@ async def main(page: ft.Page):
                 ),
                 desktop_source_button,
                 web_source_button,
+                web_browser_dropdown,
                 web_profile_dropdown,
             ],
             spacing=10,
