@@ -357,6 +357,7 @@ def load_settings():
         "discovery_source": "desktop",
         "web_browser": "chrome",
         "web_profile": "",
+        "auto_refresh_enabled": False,
     }
     if os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE, 'r') as f:
