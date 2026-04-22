@@ -4,9 +4,8 @@ import asyncio
 from config import (
     load_settings,
     save_settings,
-    WHATSAPP_STATUS_PATH,
     THUMBNAIL_CACHE_DIR,
-    get_whatsapp_storage_diagnostics,
+    get_status_source_diagnostics,
 )
 from ui import build_status_card, create_title_bar, create_navigation_rail
 from status_handler import (
@@ -16,7 +15,6 @@ from status_handler import (
     warm_status_previews,
 )
 from utils import get_cached_thumbnail
-from webview_status_source import has_webview_status_source
 
 
 def show_snack_bar(page, message):
@@ -76,6 +74,9 @@ async def main(page: ft.Page):
         if settings.get("theme_mode", "light") == "dark"
         else ft.ThemeMode.LIGHT
     )
+    current_source = settings.get("discovery_source", "desktop")
+    if current_source not in {"desktop", "web"}:
+        current_source = "desktop"
 
     page_content = ft.Column(
         alignment=ft.MainAxisAlignment.START,
@@ -122,6 +123,9 @@ async def main(page: ft.Page):
         "footer_label": None,
     }
 
+    desktop_source_button = ft.ElevatedButton(content="Desktop")
+    web_source_button = ft.ElevatedButton(content="Web (Chrome)")
+
     media_grid = ft.ResponsiveRow(
         controls=[],
         spacing=12,
@@ -148,6 +152,25 @@ async def main(page: ft.Page):
     )
     current_view["footer_label"] = media_footer_label
 
+    def refresh_source_buttons():
+        desktop_source_button.disabled = current_source == "desktop"
+        web_source_button.disabled = current_source == "web"
+
+    async def change_source(new_source):
+        nonlocal current_source
+        if new_source == current_source:
+            return
+
+        current_source = new_source
+        settings["discovery_source"] = new_source
+        save_settings(settings)
+        refresh_source_buttons()
+
+        if current_view["index"] in (0, 1):
+            await show_content(current_view["index"])
+        else:
+            page.update()
+
     def get_file_type(index):
         if index == 0:
             return "photos"
@@ -157,13 +180,22 @@ async def main(page: ft.Page):
             return "downloads"
         return None
 
+    def get_source_label():
+        return "WhatsApp Desktop" if current_source == "desktop" else "WhatsApp Web (Chrome)"
+
     def render_empty_state(file_type):
+        guidance = (
+            f"No {file_type} available from {get_source_label()}."
+            if current_source == "desktop"
+            else f"No {file_type} available from {get_source_label()}. "
+            "Make sure you are logged in to web.whatsapp.com in Chrome and have opened statuses there."
+        )
         page_content.controls = [
             ft.Container(
                 content=ft.Column(
                     [
                         ft.Text(
-                            f"No {file_type} available.",
+                            guidance,
                             theme_style=ft.TextThemeStyle.TITLE_MEDIUM,
                             color=ft.Colors.ON_SURFACE,
                         )
@@ -178,10 +210,67 @@ async def main(page: ft.Page):
             )
         ]
 
+    def render_source_unavailable():
+        diagnostics = get_status_source_diagnostics(current_source)
+        if current_source == "desktop":
+            body = (
+                "WhatsApp Desktop could not be found on this machine. "
+                "Install WhatsApp Desktop or switch to Web (Chrome) above."
+            )
+            detail_lines = [
+                f"Desktop cache path: {diagnostics['selected_status_path']}",
+                f"Desktop WebView path: {diagnostics['webview_indexeddb_dir']}",
+            ]
+        else:
+            body = (
+                "Chrome WhatsApp Web storage was not found. "
+                "Open Chrome, log in to web.whatsapp.com, then try Web (Chrome) again."
+            )
+            detail_lines = [
+                f"Chrome profile: {diagnostics['profile_name']}",
+                f"Expected IndexedDB path: {diagnostics['indexeddb_dir']}",
+            ]
+
+        page_content.controls = [
+            ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Text(
+                            f"{get_source_label()} is not available.",
+                            theme_style=ft.TextThemeStyle.HEADLINE_SMALL,
+                            color=ft.Colors.ON_SURFACE,
+                        ),
+                        ft.Text(
+                            body,
+                            color=ft.Colors.ON_SURFACE,
+                        ),
+                        ft.Container(
+                            content=ft.Text(
+                                "\n".join(detail_lines),
+                                selectable=True,
+                                color=ft.Colors.ON_SURFACE,
+                            ),
+                            padding=12,
+                            border_radius=8,
+                            bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+                        ),
+                    ],
+                    spacing=12,
+                    tight=True,
+                ),
+                padding=24,
+                margin=20,
+                border_radius=16,
+                bgcolor=ft.Colors.with_opacity(0.03, ft.Colors.ON_SURFACE),
+                width=900,
+            )
+        ]
+
     def update_media_footer():
         footer_text = (
             f"Showing {len(current_view['items'])} "
-            f"of {current_view['total_count']} {current_view['file_type']}"
+            f"of {current_view['total_count']} {current_view['file_type']} "
+            f"from {get_source_label()}"
         )
         if current_view["is_loading_more"]:
             footer_text = f"{footer_text} - Loading more..."
@@ -355,7 +444,12 @@ async def main(page: ft.Page):
             current_view["has_more"] = False
             current_view["is_loading_more"] = False
             reset_media_content()
-            render_loading("Loading statuses..." if file_type != "downloads" else "Loading downloads...")
+            loading_message = (
+                f"Loading {get_source_label()} statuses..."
+                if file_type != "downloads"
+                else "Loading downloads..."
+            )
+            render_loading(loading_message)
             page.update()
 
         load_token = current_view["token"]
@@ -379,6 +473,18 @@ async def main(page: ft.Page):
             page.update()
             return
 
+        diagnostics = get_status_source_diagnostics(current_source)
+        if not diagnostics["available"]:
+            if current_view["token"] != load_token or current_view["index"] != index:
+                return
+            current_view["items"] = []
+            current_view["loaded_count"] = 0
+            current_view["total_count"] = 0
+            current_view["has_more"] = False
+            render_source_unavailable()
+            page.update()
+            return
+
         page_number = (current_view["loaded_count"] // MEDIA_BATCH_SIZE) + 1
         batch_items = await asyncio.to_thread(
             load_statuses,
@@ -387,10 +493,16 @@ async def main(page: ft.Page):
             page_number,
             MEDIA_BATCH_SIZE,
             False,
+            current_source,
         )
         total_count = current_view["total_count"]
         if not append or total_count <= 0:
-            total_count = await asyncio.to_thread(count_statuses, file_type, save_dir)
+            total_count = await asyncio.to_thread(
+                count_statuses,
+                file_type,
+                save_dir,
+                current_source,
+            )
 
         if current_view["token"] != load_token or current_view["index"] != index:
             return
@@ -403,6 +515,12 @@ async def main(page: ft.Page):
         current_view["loaded_count"] = len(current_view["items"])
         current_view["total_count"] = total_count
         current_view["has_more"] = current_view["loaded_count"] < total_count
+
+        if not current_view["items"] and total_count <= 0:
+            render_empty_state(file_type)
+            page.update()
+            return
+
         append_media_items(batch_items if append else current_view["items"])
         render_media_content()
         page.update()
@@ -509,12 +627,35 @@ async def main(page: ft.Page):
     async def on_tab_change(e):
         await show_content(e.control.selected_index)
 
+    desktop_source_button.on_click = lambda _: page.run_task(change_source, "desktop")
+    web_source_button.on_click = lambda _: page.run_task(change_source, "web")
+    refresh_source_buttons()
+
+    source_toggle = ft.Container(
+        content=ft.Row(
+            [
+                ft.Text(
+                    "Source",
+                    theme_style=ft.TextThemeStyle.TITLE_SMALL,
+                    color=ft.Colors.ON_SURFACE,
+                ),
+                desktop_source_button,
+                web_source_button,
+            ],
+            spacing=10,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        padding=ft.padding.only(left=16, right=16, bottom=8),
+        bgcolor=ft.Colors.SURFACE,
+    )
+
     rail = create_navigation_rail(on_tab_change)
     title_bar = create_title_bar(page, theme_changed)
 
     page.add(
         ft.Column(
             [title_bar,
+                source_toggle,
                 ft.Row(
                     [
                         rail,
@@ -528,75 +669,6 @@ async def main(page: ft.Page):
             expand=True
         )
     )
-
-    if not os.path.exists(WHATSAPP_STATUS_PATH) and not has_webview_status_source():
-        diagnostics = get_whatsapp_storage_diagnostics()
-        known_candidates = "\n".join(diagnostics["known_candidates"])
-        package_root_exists = os.path.exists(diagnostics["package_root"])
-
-        page_content.controls = [
-            ft.Container(
-                content=ft.Column(
-                    [
-                        ft.Text(
-                            "WhatsApp status folder not found.",
-                            theme_style=ft.TextThemeStyle.HEADLINE_SMALL,
-                            color=ft.Colors.ON_SURFACE,
-                        ),
-                        ft.Text(
-                            "This app was originally built for an older WhatsApp Desktop layout "
-                            "that exposed temporary status files in a transfers folder.",
-                            color=ft.Colors.ON_SURFACE,
-                        ),
-                        ft.Text(
-                            "On this machine, the WhatsApp package is installed, but that cache "
-                            "folder is not present. Newer builds appear to store data in WebView "
-                            "cache/session storage instead, so there may be no direct folder for "
-                            "this app to scan."
-                            if package_root_exists
-                            else "WhatsApp Desktop does not appear to be installed in the expected location.",
-                            color=ft.Colors.ON_SURFACE,
-                        ),
-                        ft.Text("Expected status cache path:", color=ft.Colors.ON_SURFACE),
-                        ft.Container(
-                            content=ft.Text(
-                                diagnostics["selected_status_path"],
-                                selectable=True,
-                                color=ft.Colors.ON_SURFACE,
-                            ),
-                            padding=12,
-                            border_radius=8,
-                            bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
-                        ),
-                        ft.Text("Known checked locations:", color=ft.Colors.ON_SURFACE),
-                        ft.Container(
-                            content=ft.Text(
-                                known_candidates,
-                                selectable=True,
-                                color=ft.Colors.ON_SURFACE,
-                            ),
-                            padding=12,
-                            border_radius=8,
-                            bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
-                        ),
-                        ft.Text(
-                            "You can still change the save folder in Settings, but status discovery "
-                            "will stay empty until WhatsApp exposes a readable media cache again.",
-                            color=ft.Colors.ON_SURFACE,
-                        ),
-                    ],
-                    spacing=10,
-                    tight=True,
-                ),
-                padding=24,
-                margin=20,
-                border_radius=16,
-                bgcolor=ft.Colors.with_opacity(0.03, ft.Colors.ON_SURFACE),
-                width=900,
-            )
-        ]
-        page.update()
-        return page
 
     page.run_task(show_content, 0)
     return page
