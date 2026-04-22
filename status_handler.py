@@ -30,6 +30,7 @@ def load_statuses(
     items_per_page=None,
     materialize=True,
     source_mode="desktop",
+    selected_web_browser="chrome",
     selected_web_profile=None,
 ):
     try:
@@ -50,6 +51,7 @@ def load_statuses(
             page=page,
             items_per_page=items_per_page,
             source_mode=source_mode,
+            selected_web_browser=selected_web_browser,
             selected_web_profile=selected_web_profile,
         )
         if webview_records:
@@ -59,6 +61,7 @@ def load_statuses(
                     page=page,
                     items_per_page=items_per_page,
                     source_mode=source_mode,
+                    selected_web_browser=selected_web_browser,
                     selected_web_profile=selected_web_profile,
                 )
             return webview_records
@@ -74,7 +77,13 @@ def load_statuses(
         return []
 
 
-def count_statuses(file_type, save_dir, source_mode="desktop", selected_web_profile=None):
+def count_statuses(
+    file_type,
+    save_dir,
+    source_mode="desktop",
+    selected_web_browser="chrome",
+    selected_web_profile=None,
+):
     try:
         if file_type == "downloads":
             if not os.path.isdir(save_dir):
@@ -90,6 +99,7 @@ def count_statuses(file_type, save_dir, source_mode="desktop", selected_web_prof
             page=1,
             items_per_page=None,
             source_mode=source_mode,
+            selected_web_browser=selected_web_browser,
             selected_web_profile=selected_web_profile,
         )
         if webview_records:
@@ -133,8 +143,16 @@ def get_status_item_key(item):
     return str(item)
 
 
-def refresh_status_cache(source_mode="desktop", selected_web_profile=None):
-    invalidate_status_source_cache(source_mode, selected_web_profile)
+def refresh_status_cache(
+    source_mode="desktop",
+    selected_web_browser="chrome",
+    selected_web_profile=None,
+):
+    invalidate_status_source_cache(
+        source_mode,
+        selected_web_browser,
+        selected_web_profile,
+    )
     if source_mode == "desktop":
         get_all_status_files.cache_clear()
 

@@ -36,6 +36,17 @@ WINDOWS_WEBVIEW_BLOB_DIR = os.path.join(
 CHROME_USER_DATA_ROOT = os.path.expandvars(
     r"%LOCALAPPDATA%\Google\Chrome\User Data"
 )
+EDGE_USER_DATA_ROOT = os.path.expandvars(
+    r"%LOCALAPPDATA%\Microsoft\Edge\User Data"
+)
+WINDOWS_WEB_BROWSER_ROOTS = {
+    "chrome": CHROME_USER_DATA_ROOT,
+    "edge": EDGE_USER_DATA_ROOT,
+}
+WINDOWS_WEB_BROWSER_LABELS = {
+    "chrome": "Chrome",
+    "edge": "Edge",
+}
 
 
 def _first_existing_path(paths):
@@ -71,12 +82,27 @@ def get_whatsapp_storage_diagnostics():
     raise NotImplementedError(f"Unsupported operating system: {SYSTEM}")
 
 
-def _get_chrome_profile_dirs():
-    if SYSTEM != "Windows" or not os.path.isdir(CHROME_USER_DATA_ROOT):
+def get_supported_web_browsers():
+    if SYSTEM != "Windows":
+        return []
+    return list(WINDOWS_WEB_BROWSER_ROOTS.keys())
+
+
+def get_web_browser_label(browser):
+    return WINDOWS_WEB_BROWSER_LABELS.get(browser, browser.title())
+
+
+def _get_web_browser_root(browser):
+    return WINDOWS_WEB_BROWSER_ROOTS.get(browser, "")
+
+
+def _get_browser_profile_dirs(browser):
+    browser_root = _get_web_browser_root(browser)
+    if SYSTEM != "Windows" or not os.path.isdir(browser_root):
         return []
 
     profile_dirs = []
-    for entry in os.scandir(CHROME_USER_DATA_ROOT):
+    for entry in os.scandir(browser_root):
         if not entry.is_dir():
             continue
         if entry.name == "Default" or entry.name.startswith("Profile "):
@@ -84,7 +110,7 @@ def _get_chrome_profile_dirs():
     return sorted(profile_dirs)
 
 
-def _chrome_whatsapp_paths(profile_dir):
+def _browser_whatsapp_paths(browser, profile_dir):
     profile_name = os.path.basename(profile_dir)
     indexeddb_dir = os.path.join(
         profile_dir,
@@ -97,6 +123,8 @@ def _chrome_whatsapp_paths(profile_dir):
         "https_web.whatsapp.com_0.indexeddb.blob",
     )
     return {
+        "browser": browser,
+        "browser_label": get_web_browser_label(browser),
         "profile_name": profile_name,
         "profile_dir": profile_dir,
         "indexeddb_dir": indexeddb_dir,
@@ -105,8 +133,11 @@ def _chrome_whatsapp_paths(profile_dir):
     }
 
 
-def get_chrome_profiles():
-    profiles = [_chrome_whatsapp_paths(profile_dir) for profile_dir in _get_chrome_profile_dirs()]
+def get_web_profiles(browser):
+    profiles = [
+        _browser_whatsapp_paths(browser, profile_dir)
+        for profile_dir in _get_browser_profile_dirs(browser)
+    ]
     profiles.sort(
         key=lambda source: os.path.getmtime(source["indexeddb_dir"])
         if os.path.isdir(source["indexeddb_dir"])
@@ -116,12 +147,12 @@ def get_chrome_profiles():
     return profiles
 
 
-def get_chrome_whatsapp_sources():
-    return [profile for profile in get_chrome_profiles() if profile["available"]]
+def get_browser_whatsapp_sources(browser):
+    return [profile for profile in get_web_profiles(browser) if profile["available"]]
 
 
-def get_preferred_chrome_profile(selected_profile_name=None):
-    profiles = get_chrome_profiles()
+def get_preferred_web_profile(browser, selected_profile_name=None):
+    profiles = get_web_profiles(browser)
     if selected_profile_name:
         for profile in profiles:
             if profile["profile_name"] == selected_profile_name:
@@ -134,11 +165,15 @@ def get_preferred_chrome_profile(selected_profile_name=None):
     if profiles:
         return profiles[0]
 
-    default_profile_dir = os.path.join(CHROME_USER_DATA_ROOT, "Default")
-    return _chrome_whatsapp_paths(default_profile_dir)
+    default_profile_dir = os.path.join(_get_web_browser_root(browser), "Default")
+    return _browser_whatsapp_paths(browser, default_profile_dir)
 
 
-def get_status_source_config(source_mode, selected_web_profile=None):
+def get_status_source_config(
+    source_mode,
+    selected_web_browser="chrome",
+    selected_web_profile=None,
+):
     if source_mode == "desktop":
         return {
             "key": "desktop",
@@ -150,22 +185,28 @@ def get_status_source_config(source_mode, selected_web_profile=None):
         }
 
     if source_mode == "web":
-        chrome_source = get_preferred_chrome_profile(selected_web_profile)
+        web_source = get_preferred_web_profile(selected_web_browser, selected_web_profile)
         return {
-            "key": f"chrome-{chrome_source['profile_name'].lower().replace(' ', '-')}",
-            "label": "WhatsApp Web (Chrome)",
-            "indexeddb_dir": chrome_source["indexeddb_dir"],
-            "blob_dir": chrome_source["blob_dir"],
+            "key": f"{web_source['browser']}-{web_source['profile_name'].lower().replace(' ', '-')}",
+            "label": f"WhatsApp Web ({web_source['browser_label']})",
+            "indexeddb_dir": web_source["indexeddb_dir"],
+            "blob_dir": web_source["blob_dir"],
             "legacy_status_path": "",
-            "profile_name": chrome_source["profile_name"],
-            "profile_dir": chrome_source["profile_dir"],
-            "available": chrome_source["available"],
+            "profile_name": web_source["profile_name"],
+            "profile_dir": web_source["profile_dir"],
+            "available": web_source["available"],
+            "browser": web_source["browser"],
+            "browser_label": web_source["browser_label"],
         }
 
     raise ValueError(f"Unknown source mode: {source_mode}")
 
 
-def get_status_source_diagnostics(source_mode, selected_web_profile=None):
+def get_status_source_diagnostics(
+    source_mode,
+    selected_web_browser="chrome",
+    selected_web_profile=None,
+):
     if source_mode == "desktop":
         legacy_exists = os.path.exists(WHATSAPP_STATUS_PATH)
         webview_exists = os.path.isdir(WHATSAPP_WEBVIEW_INDEXEDDB_DIR)
@@ -180,21 +221,24 @@ def get_status_source_diagnostics(source_mode, selected_web_profile=None):
         }
 
     if source_mode == "web":
-        chrome_profiles = get_chrome_profiles()
-        chrome_sources = [profile for profile in chrome_profiles if profile["available"]]
-        selected_source = get_preferred_chrome_profile(selected_web_profile)
+        browser_root = _get_web_browser_root(selected_web_browser)
+        browser_profiles = get_web_profiles(selected_web_browser)
+        browser_sources = [profile for profile in browser_profiles if profile["available"]]
+        selected_source = get_preferred_web_profile(selected_web_browser, selected_web_profile)
         return {
             "mode": "web",
-            "label": "WhatsApp Web (Chrome)",
+            "label": f"WhatsApp Web ({selected_source['browser_label']})",
             "available": bool(selected_source["available"]),
-            "chrome_installed": os.path.isdir(CHROME_USER_DATA_ROOT),
-            "profile_count": len(chrome_profiles),
+            "browser": selected_source["browser"],
+            "browser_label": selected_source["browser_label"],
+            "browser_installed": os.path.isdir(browser_root),
+            "profile_count": len(browser_profiles),
             "profile_name": selected_source["profile_name"],
             "profile_dir": selected_source["profile_dir"],
             "indexeddb_dir": selected_source["indexeddb_dir"],
             "blob_dir": selected_source["blob_dir"],
-            "profiles": chrome_profiles,
-            "profiles_with_whatsapp": len(chrome_sources),
+            "profiles": browser_profiles,
+            "profiles_with_whatsapp": len(browser_sources),
         }
 
     raise ValueError(f"Unknown source mode: {source_mode}")
@@ -225,6 +269,7 @@ def load_settings():
         "save_dir": DEFAULT_SAVE_DIR,
         "theme_mode": "light",
         "discovery_source": "desktop",
+        "web_browser": "chrome",
         "web_profile": "",
     }
     if os.path.exists(SETTINGS_FILE):

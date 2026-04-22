@@ -97,9 +97,14 @@ class StatusRecord:
 
 def has_webview_status_source(
     source_mode: str = "desktop",
+    selected_web_browser: str = "chrome",
     selected_web_profile: str | None = None,
 ) -> bool:
-    source_config = get_status_source_config(source_mode, selected_web_profile)
+    source_config = get_status_source_config(
+        source_mode,
+        selected_web_browser,
+        selected_web_profile,
+    )
     return os.path.isdir(source_config["indexeddb_dir"])
 
 
@@ -108,6 +113,7 @@ def get_webview_status_files(
     page: int = 1,
     items_per_page: int | None = None,
     source_mode: str = "desktop",
+    selected_web_browser: str = "chrome",
     selected_web_profile: str | None = None,
 ) -> list[str]:
     if file_type not in {"photos", "videos"}:
@@ -118,6 +124,7 @@ def get_webview_status_files(
         page=page,
         items_per_page=items_per_page,
         source_mode=source_mode,
+        selected_web_browser=selected_web_browser,
         selected_web_profile=selected_web_profile,
     )
     if not records:
@@ -158,6 +165,7 @@ def get_webview_status_records(
     page: int = 1,
     items_per_page: int | None = None,
     source_mode: str = "desktop",
+    selected_web_browser: str = "chrome",
     selected_web_profile: str | None = None,
 ) -> list[StatusRecord]:
     if file_type not in {"photos", "videos"}:
@@ -165,7 +173,11 @@ def get_webview_status_records(
 
     records = [
         record
-        for record in _load_all_status_records(source_mode, selected_web_profile)
+        for record in _load_all_status_records(
+            source_mode,
+            selected_web_browser,
+            selected_web_profile,
+        )
         if record.kind == file_type
     ]
     if items_per_page is None or items_per_page <= 0:
@@ -179,9 +191,14 @@ def get_webview_status_records(
 def iter_status_records(
     file_type: str,
     source_mode: str = "desktop",
+    selected_web_browser: str = "chrome",
     selected_web_profile: str | None = None,
 ) -> Iterable[StatusRecord]:
-    for record in _load_all_status_records(source_mode, selected_web_profile):
+    for record in _load_all_status_records(
+        source_mode,
+        selected_web_browser,
+        selected_web_profile,
+    ):
         if record.kind == file_type:
             yield record
 
@@ -219,14 +236,23 @@ def get_cached_record_path(record: StatusRecord) -> str | None:
 
 def _load_all_status_records(
     source_mode: str = "desktop",
+    selected_web_browser: str = "chrome",
     selected_web_profile: str | None = None,
 ) -> list[StatusRecord]:
     global _STATUS_RECORD_CACHE
 
-    source_config = get_status_source_config(source_mode, selected_web_profile)
+    source_config = get_status_source_config(
+        source_mode,
+        selected_web_browser,
+        selected_web_profile,
+    )
     source_key = source_config["key"]
 
-    if not has_webview_status_source(source_mode, selected_web_profile):
+    if not has_webview_status_source(
+        source_mode,
+        selected_web_browser,
+        selected_web_profile,
+    ):
         return []
 
     snapshot = _build_indexeddb_snapshot(source_config)
@@ -254,9 +280,14 @@ def _load_all_status_records(
 
 def invalidate_status_source_cache(
     source_mode: str = "desktop",
+    selected_web_browser: str = "chrome",
     selected_web_profile: str | None = None,
 ) -> None:
-    source_config = get_status_source_config(source_mode, selected_web_profile)
+    source_config = get_status_source_config(
+        source_mode,
+        selected_web_browser,
+        selected_web_profile,
+    )
     source_key = source_config["key"]
     _STATUS_RECORD_CACHE.pop(source_key, None)
     index_cache_file = _index_cache_file_for_source(source_key)
