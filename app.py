@@ -779,8 +779,8 @@ async def main(page: ft.Page):
 
     desktop_source_button.on_click = lambda _: page.run_task(change_source, "desktop")
     web_source_button.on_click = lambda _: page.run_task(change_source, "web")
-    web_browser_dropdown.on_change = change_web_browser
-    web_profile_dropdown.on_change = change_web_profile
+    web_browser_dropdown.on_select = change_web_browser
+    web_profile_dropdown.on_select = change_web_profile
     refresh_source_buttons()
 
     source_toggle = ft.Container(
