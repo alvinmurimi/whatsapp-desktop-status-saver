@@ -1,6 +1,7 @@
 import os
 import json
 import platform
+import configparser
 
 # Determine the operating system
 SYSTEM = platform.system()
@@ -101,6 +102,69 @@ def _get_web_browser_root(browser):
     return WINDOWS_WEB_BROWSER_ROOTS.get(browser, "")
 
 
+def _load_chromium_profile_labels(browser):
+    browser_root = _get_web_browser_root(browser)
+    local_state_path = os.path.join(browser_root, "Local State")
+    if not os.path.isfile(local_state_path):
+        return {}
+
+    try:
+        with open(local_state_path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, ValueError, TypeError):
+        return {}
+
+    info_cache = payload.get("profile", {}).get("info_cache", {})
+    if not isinstance(info_cache, dict):
+        return {}
+
+    labels = {}
+    for profile_name, info in info_cache.items():
+        if not isinstance(info, dict):
+            continue
+        shortcut_name = (info.get("shortcut_name") or "").strip()
+        display_name = (info.get("name") or "").strip()
+        labels[profile_name] = shortcut_name or display_name or profile_name
+    return labels
+
+
+def _load_firefox_profile_labels():
+    profiles_ini_path = os.path.expandvars(r"%APPDATA%\Mozilla\Firefox\profiles.ini")
+    if not os.path.isfile(profiles_ini_path):
+        return {}
+
+    parser = configparser.ConfigParser()
+    try:
+        parser.read(profiles_ini_path, encoding="utf-8")
+    except (OSError, configparser.Error):
+        return {}
+
+    labels = {}
+    profile_root = _get_web_browser_root("firefox")
+    for section in parser.sections():
+        if not section.startswith("Profile"):
+            continue
+        relative_path = parser.get(section, "Path", fallback="").strip()
+        display_name = parser.get(section, "Name", fallback="").strip()
+        if not relative_path:
+            continue
+
+        normalized_path = relative_path.replace("/", os.sep)
+        if os.path.isabs(normalized_path):
+            full_path = os.path.normpath(normalized_path)
+        else:
+            full_path = os.path.normpath(os.path.join(os.path.dirname(profile_root), normalized_path))
+        profile_name = os.path.basename(full_path)
+        labels[profile_name] = display_name or profile_name
+    return labels
+
+
+def _get_browser_profile_labels(browser):
+    if browser == "firefox":
+        return _load_firefox_profile_labels()
+    return _load_chromium_profile_labels(browser)
+
+
 def _get_browser_profile_dirs(browser):
     browser_root = _get_web_browser_root(browser)
     if SYSTEM != "Windows" or not os.path.isdir(browser_root):
@@ -120,6 +184,7 @@ def _get_browser_profile_dirs(browser):
 
 def _browser_whatsapp_paths(browser, profile_dir):
     profile_name = os.path.basename(profile_dir)
+    profile_labels = _get_browser_profile_labels(browser)
     if browser == "firefox":
         origin_dir = os.path.join(
             profile_dir,
@@ -144,6 +209,7 @@ def _browser_whatsapp_paths(browser, profile_dir):
         "browser": browser,
         "browser_label": get_web_browser_label(browser),
         "profile_name": profile_name,
+        "profile_display_name": profile_labels.get(profile_name, profile_name),
         "profile_dir": profile_dir,
         "indexeddb_dir": indexeddb_dir,
         "blob_dir": blob_dir,
@@ -211,6 +277,7 @@ def get_status_source_config(
             "blob_dir": web_source["blob_dir"],
             "legacy_status_path": "",
             "profile_name": web_source["profile_name"],
+            "profile_display_name": web_source["profile_display_name"],
             "profile_dir": web_source["profile_dir"],
             "available": web_source["available"],
             "browser": web_source["browser"],
@@ -252,6 +319,7 @@ def get_status_source_diagnostics(
             "browser_installed": os.path.isdir(browser_root),
             "profile_count": len(browser_profiles),
             "profile_name": selected_source["profile_name"],
+            "profile_display_name": selected_source["profile_display_name"],
             "profile_dir": selected_source["profile_dir"],
             "indexeddb_dir": selected_source["indexeddb_dir"],
             "blob_dir": selected_source["blob_dir"],

@@ -215,6 +215,12 @@ async def main(page: ft.Page):
     def get_available_web_profiles():
         return get_web_profiles(current_web_browser)
 
+    def get_current_profile_display_name():
+        for profile in get_available_web_profiles():
+            if profile["profile_name"] == current_web_profile:
+                return profile.get("profile_display_name") or profile["profile_name"]
+        return current_web_profile or "Default"
+
     def refresh_web_profile_dropdown():
         nonlocal current_web_profile
         profiles = get_available_web_profiles()
@@ -223,7 +229,11 @@ async def main(page: ft.Page):
         web_profile_dropdown.options = [
             ft.dropdown.Option(
                 key=p["profile_name"],
-                text=p["profile_name"] if p["available"] else f"{p['profile_name']} (no data)",
+                text=(
+                    p.get("profile_display_name") or p["profile_name"]
+                )
+                if p["available"]
+                else f"{p.get('profile_display_name') or p['profile_name']} (no data)",
             )
             for p in profiles
         ]
@@ -322,7 +332,7 @@ async def main(page: ft.Page):
         if current_web_profile:
             return (
                 f"WhatsApp Web ({get_web_browser_label(current_web_browser)}"
-                f" · {current_web_profile})"
+                f" · {get_current_profile_display_name()})"
             )
         return f"WhatsApp Web ({get_web_browser_label(current_web_browser)})"
 
@@ -371,11 +381,11 @@ async def main(page: ft.Page):
             else:
                 body = (
                     f"WhatsApp Web data not found for {browser_label} profile "
-                    f"'{diagnostics['profile_name']}'. "
+                    f"'{diagnostics.get('profile_display_name') or diagnostics['profile_name']}'. "
                     f"Open {browser_label} with that profile, log in to web.whatsapp.com, then refresh."
                 )
             detail_lines = [
-                f"Profile:      {diagnostics['profile_name']}",
+                f"Profile:      {diagnostics.get('profile_display_name') or diagnostics['profile_name']}",
                 f"IndexedDB:    {diagnostics['indexeddb_dir']}",
             ]
 
@@ -540,7 +550,7 @@ async def main(page: ft.Page):
             else:
                 browser_label = get_web_browser_label(current_web_browser)
                 render_loading(
-                    f"Reading {browser_label} · {current_web_profile or 'Default'} for {file_type}…"
+                    f"Reading {browser_label} · {get_current_profile_display_name()} for {file_type}…"
                 )
             page.update()
 
