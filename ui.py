@@ -136,7 +136,7 @@ def build_status_card(
     )
     return StatusCardHandle(control=control, refresh_preview=refresh_preview)
 
-def create_title_bar(page, theme_changed):
+def create_title_bar(page, refresh_current_view, theme_changed):
     return ft.Container(
         content=ft.Row(
             [
@@ -148,6 +148,12 @@ def create_title_bar(page, theme_changed):
                     ),
                     padding=ft.padding.Padding(10, 10, 10, 10),
                     expand=True,
+                ),
+                ft.IconButton(
+                    icon=ft.Icons.REFRESH,
+                    icon_color=ft.Colors.ON_SURFACE,
+                    on_click=refresh_current_view,
+                    tooltip="Refresh Current View",
                 ),
                 ft.IconButton(
                     icon=ft.Icons.WB_SUNNY_OUTLINED if page.theme_mode == ft.ThemeMode.LIGHT else ft.Icons.WB_SUNNY,

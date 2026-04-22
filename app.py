@@ -2,6 +2,7 @@ import flet as ft
 import os
 import asyncio
 from config import (
+    get_chrome_profiles,
     load_settings,
     save_settings,
     THUMBNAIL_CACHE_DIR,
@@ -12,6 +13,7 @@ from status_handler import (
     count_statuses,
     get_status_item_key,
     load_statuses,
+    refresh_status_cache,
     warm_status_previews,
 )
 from utils import get_cached_thumbnail
@@ -77,6 +79,7 @@ async def main(page: ft.Page):
     current_source = settings.get("discovery_source", "desktop")
     if current_source not in {"desktop", "web"}:
         current_source = "desktop"
+    current_web_profile = settings.get("web_profile", "")
 
     page_content = ft.Column(
         alignment=ft.MainAxisAlignment.START,
@@ -125,6 +128,12 @@ async def main(page: ft.Page):
 
     desktop_source_button = ft.ElevatedButton(content="Desktop")
     web_source_button = ft.ElevatedButton(content="Web (Chrome)")
+    web_profile_dropdown = ft.Dropdown(
+        label="Chrome profile",
+        width=220,
+        dense=True,
+        visible=False,
+    )
 
     media_grid = ft.ResponsiveRow(
         controls=[],
@@ -152,9 +161,46 @@ async def main(page: ft.Page):
     )
     current_view["footer_label"] = media_footer_label
 
+    def get_available_web_profiles():
+        return get_chrome_profiles()
+
+    def refresh_web_profile_dropdown():
+        nonlocal current_web_profile
+        profiles = get_available_web_profiles()
+        option_values = [profile["profile_name"] for profile in profiles]
+
+        web_profile_dropdown.options = [
+            ft.dropdown.Option(
+                key=profile["profile_name"],
+                text=(
+                    f"{profile['profile_name']}"
+                    if profile["available"]
+                    else f"{profile['profile_name']} (no WhatsApp Web data)"
+                ),
+            )
+            for profile in profiles
+        ]
+
+        if option_values:
+            if current_web_profile not in option_values:
+                preferred_profile = next(
+                    (profile["profile_name"] for profile in profiles if profile["available"]),
+                    option_values[0],
+                )
+                current_web_profile = preferred_profile
+                settings["web_profile"] = current_web_profile
+                save_settings(settings)
+            web_profile_dropdown.value = current_web_profile
+        else:
+            current_web_profile = ""
+            web_profile_dropdown.value = None
+
+        web_profile_dropdown.visible = current_source == "web"
+
     def refresh_source_buttons():
         desktop_source_button.disabled = current_source == "desktop"
         web_source_button.disabled = current_source == "web"
+        refresh_web_profile_dropdown()
 
     async def change_source(new_source):
         nonlocal current_source
@@ -171,6 +217,30 @@ async def main(page: ft.Page):
         else:
             page.update()
 
+    async def change_web_profile(e):
+        nonlocal current_web_profile
+        selected_profile = e.control.value or ""
+        if selected_profile == current_web_profile:
+            return
+
+        current_web_profile = selected_profile
+        settings["web_profile"] = current_web_profile
+        save_settings(settings)
+
+        if current_source == "web" and current_view["index"] in (0, 1):
+            await show_content(current_view["index"])
+        else:
+            page.update()
+
+    async def refresh_current_view(_=None):
+        if current_view["index"] in (0, 1):
+            await asyncio.to_thread(
+                refresh_status_cache,
+                current_source,
+                current_web_profile,
+            )
+        await show_content(current_view["index"])
+
     def get_file_type(index):
         if index == 0:
             return "photos"
@@ -181,7 +251,11 @@ async def main(page: ft.Page):
         return None
 
     def get_source_label():
-        return "WhatsApp Desktop" if current_source == "desktop" else "WhatsApp Web (Chrome)"
+        if current_source == "desktop":
+            return "WhatsApp Desktop"
+        if current_web_profile:
+            return f"WhatsApp Web (Chrome - {current_web_profile})"
+        return "WhatsApp Web (Chrome)"
 
     def render_empty_state(file_type):
         guidance = (
@@ -211,7 +285,7 @@ async def main(page: ft.Page):
         ]
 
     def render_source_unavailable():
-        diagnostics = get_status_source_diagnostics(current_source)
+        diagnostics = get_status_source_diagnostics(current_source, current_web_profile)
         if current_source == "desktop":
             body = (
                 "WhatsApp Desktop could not be found on this machine. "
@@ -222,10 +296,22 @@ async def main(page: ft.Page):
                 f"Desktop WebView path: {diagnostics['webview_indexeddb_dir']}",
             ]
         else:
-            body = (
-                "Chrome WhatsApp Web storage was not found. "
-                "Open Chrome, log in to web.whatsapp.com, then try Web (Chrome) again."
-            )
+            if not diagnostics["chrome_installed"]:
+                body = (
+                    "Google Chrome does not appear to be installed on this machine. "
+                    "Install Chrome or switch back to WhatsApp Desktop above."
+                )
+            elif diagnostics["profile_count"] <= 0:
+                body = (
+                    "No Chrome profiles were found. Open Chrome once to create a profile, "
+                    "then log in to web.whatsapp.com."
+                )
+            else:
+                body = (
+                    f"WhatsApp Web data was not found for the Chrome profile "
+                    f"'{diagnostics['profile_name']}'. Open Chrome with that profile, "
+                    "log in to web.whatsapp.com, then refresh or choose another profile."
+                )
             detail_lines = [
                 f"Chrome profile: {diagnostics['profile_name']}",
                 f"Expected IndexedDB path: {diagnostics['indexeddb_dir']}",
@@ -426,6 +512,7 @@ async def main(page: ft.Page):
 
     async def show_content(index, append=False):
         if index == 3:
+            current_view["index"] = 3
             show_settings()
             page.update()
             return
@@ -473,7 +560,7 @@ async def main(page: ft.Page):
             page.update()
             return
 
-        diagnostics = get_status_source_diagnostics(current_source)
+        diagnostics = get_status_source_diagnostics(current_source, current_web_profile)
         if not diagnostics["available"]:
             if current_view["token"] != load_token or current_view["index"] != index:
                 return
@@ -494,6 +581,7 @@ async def main(page: ft.Page):
             MEDIA_BATCH_SIZE,
             False,
             current_source,
+            current_web_profile,
         )
         total_count = current_view["total_count"]
         if not append or total_count <= 0:
@@ -502,6 +590,7 @@ async def main(page: ft.Page):
                 file_type,
                 save_dir,
                 current_source,
+                current_web_profile,
             )
 
         if current_view["token"] != load_token or current_view["index"] != index:
@@ -629,6 +718,7 @@ async def main(page: ft.Page):
 
     desktop_source_button.on_click = lambda _: page.run_task(change_source, "desktop")
     web_source_button.on_click = lambda _: page.run_task(change_source, "web")
+    web_profile_dropdown.on_change = change_web_profile
     refresh_source_buttons()
 
     source_toggle = ft.Container(
@@ -641,6 +731,7 @@ async def main(page: ft.Page):
                 ),
                 desktop_source_button,
                 web_source_button,
+                web_profile_dropdown,
             ],
             spacing=10,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -650,7 +741,7 @@ async def main(page: ft.Page):
     )
 
     rail = create_navigation_rail(on_tab_change)
-    title_bar = create_title_bar(page, theme_changed)
+    title_bar = create_title_bar(page, refresh_current_view, theme_changed)
 
     page.add(
         ft.Column(
