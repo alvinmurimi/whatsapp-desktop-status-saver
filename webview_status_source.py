@@ -5,6 +5,8 @@ import http.client
 import json
 import mimetypes
 import os
+import re
+import sqlite3
 import tempfile
 import time
 from dataclasses import asdict, dataclass
@@ -52,6 +54,21 @@ MESSAGE_DATABASE_NAME = "model-storage"
 MESSAGE_OBJECT_STORE_NAME = "message"
 INDEX_CACHE_MAX_AGE_SECONDS = 15 * 60
 MAX_CACHE_WORKERS = 6
+FIREFOX_REQUIRED_TABLES = {"database", "object_store", "object_data"}
+FIREFOX_STATUS_ID_PATTERN = re.compile(
+    rb"(status@broadcast_[A-Za-z0-9:_-]+@[A-Za-z]+)"
+)
+FIREFOX_TYPE_PATTERN = re.compile(rb"type[\x00-\xff]{0,16}(imag|video)")
+FIREFOX_FILEHASH_PATTERN = re.compile(
+    rb"filehash[\x00-\xff]{0,16}([A-Za-z0-9+/=]{20,})"
+)
+BASE64_TOKEN_PATTERN = re.compile(rb"[A-Za-z0-9+/=]{20,}")
+URL_SAFE_BYTES = (
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    b"abcdefghijklmnopqrstuvwxyz"
+    b"0123456789"
+    b"-._~:/?#[]@!$&'()*+,;=%"
+)
 
 IMAGE_EXTENSIONS = {
     "image/jpeg": ".jpg",
@@ -265,6 +282,12 @@ def _load_all_status_records(
         _STATUS_RECORD_CACHE[source_key] = (snapshot, cached_records)
         return list(cached_records)
 
+    if _is_firefox_source(source_config):
+        records = _load_records_from_firefox_message_store(source_config)
+        _STATUS_RECORD_CACHE[source_key] = (snapshot, records)
+        _write_cached_records(source_key, snapshot, records)
+        return list(records)
+
     if HAS_INDEXEDDB_MESSAGE_PARSER:
         records = _load_records_from_message_store(source_config)
         if records:
@@ -296,6 +319,141 @@ def invalidate_status_source_cache(
             os.remove(index_cache_file)
         except OSError:
             pass
+
+
+def _is_firefox_source(source_config: dict) -> bool:
+    return source_config.get("browser") == "firefox"
+
+
+def _load_records_from_firefox_message_store(source_config: dict) -> list[StatusRecord]:
+    indexeddb_dir = source_config["indexeddb_dir"]
+    if not os.path.isdir(indexeddb_dir):
+        return []
+
+    latest_records: dict[str, StatusRecord] = {}
+    for file_name in sorted(os.listdir(indexeddb_dir), reverse=True):
+        if not file_name.endswith(".sqlite"):
+            continue
+
+        source_path = os.path.join(indexeddb_dir, file_name)
+        for source_offset, message_blob in _iter_firefox_message_blobs(source_path):
+            record = _build_status_record_from_firefox_message(
+                message_blob,
+                source_path,
+                source_offset,
+                source_config,
+            )
+            if not record:
+                continue
+
+            previous = latest_records.get(record.status_id)
+            if previous is None or (
+                record.timestamp,
+                record.source_offset,
+                record.source_file,
+            ) > (
+                previous.timestamp,
+                previous.source_offset,
+                previous.source_file,
+            ):
+                latest_records[record.status_id] = record
+
+    return sorted(
+        latest_records.values(),
+        key=lambda record: (record.timestamp, record.status_id),
+        reverse=True,
+    )
+
+
+def _iter_firefox_message_blobs(source_path: str) -> Iterable[tuple[int, bytes]]:
+    try:
+        connection = sqlite3.connect(f"file:{source_path}?mode=ro", uri=True, timeout=1)
+    except sqlite3.Error:
+        return []
+
+    try:
+        cursor = connection.cursor()
+        table_names = {
+            row[0]
+            for row in cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        if not FIREFOX_REQUIRED_TABLES.issubset(table_names):
+            return []
+
+        database_names = {row[0] for row in cursor.execute("SELECT name FROM database")}
+        if MESSAGE_DATABASE_NAME not in database_names:
+            return []
+
+        object_store_row = cursor.execute(
+            "SELECT id FROM object_store WHERE name = ?",
+            (MESSAGE_OBJECT_STORE_NAME,),
+        ).fetchone()
+        if not object_store_row:
+            return []
+
+        object_store_id = int(object_store_row[0])
+        blobs: list[tuple[int, bytes]] = []
+        for source_offset, (_, data) in enumerate(
+            cursor.execute(
+                "SELECT key, data FROM object_data WHERE object_store_id = ?",
+                (object_store_id,),
+            )
+        ):
+            if not isinstance(data, bytes) or STATUS_MARKER not in data:
+                continue
+            blobs.append((source_offset, data))
+        return blobs
+    except sqlite3.Error:
+        return []
+    finally:
+        connection.close()
+
+
+def _build_status_record_from_firefox_message(
+    message_blob: bytes,
+    source_file: str,
+    source_offset: int,
+    source_config: dict,
+) -> StatusRecord | None:
+    message_type = _extract_firefox_message_type(message_blob)
+    if message_type == "imag":
+        kind = "photos"
+        mimetype = "image/jpeg"
+    elif message_type == "video":
+        kind = "videos"
+        mimetype = "video/mp4"
+    else:
+        return None
+
+    direct_path = _extract_firefox_direct_path(message_blob)
+    filehash = _extract_firefox_filehash(message_blob)
+    if not direct_path or not filehash:
+        return None
+
+    status_id = _normalize_status_id(_extract_firefox_status_id(message_blob) or filehash)
+    normalized_direct_path = _normalize_direct_path(direct_path)
+    url = f"https://mmg.whatsapp.net{normalized_direct_path}"
+
+    return StatusRecord(
+        status_id=status_id,
+        kind=kind,
+        mimetype=mimetype,
+        url=url,
+        direct_path=normalized_direct_path,
+        filehash=filehash,
+        enc_filehash=_extract_firefox_enc_filehash(message_blob),
+        media_key=_extract_firefox_media_key(message_blob),
+        source_file=source_file,
+        source_offset=source_offset,
+        timestamp=_extract_firefox_timestamp(message_blob),
+        author_jid=None,
+        source_key=source_config["key"],
+        source_label=source_config["label"],
+        source_indexeddb_dir=source_config["indexeddb_dir"],
+        source_blob_dir=source_config.get("blob_dir"),
+    )
 
 
 def _load_records_from_message_store(source_config: dict) -> list[StatusRecord]:
@@ -420,7 +578,7 @@ def _build_status_record_from_message(
         return None
 
     return StatusRecord(
-        status_id=_extract_status_id(message) or filehash,
+        status_id=_normalize_status_id(_extract_status_id(message) or filehash),
         kind=kind,
         mimetype=mimetype,
         url=url,
@@ -451,6 +609,21 @@ def _extract_status_id(message: dict) -> str | None:
     if from_value == STATUS_MARKER.decode("ascii"):
         return status_id or internal_id
     return None
+
+
+def _normalize_status_id(status_id: str | None) -> str | None:
+    if not status_id:
+        return status_id
+
+    normalized = status_id
+    if normalized.startswith("false_"):
+        normalized = normalized[len("false_"):]
+    elif normalized.startswith("true_"):
+        normalized = normalized[len("true_"):]
+
+    if normalized.endswith("@li"):
+        normalized = f"{normalized}d"
+    return normalized
 
 
 def _get_database_id(indexed_db: IndexedDb, database_name: str) -> int:
@@ -568,8 +741,6 @@ def _write_cached_records(source_key: str, snapshot: str, records: list[StatusRe
 
 
 def _load_records_from_regex_fallback(source_config: dict) -> list[StatusRecord]:
-    import re
-
     status_url_pattern = re.compile(STATUS_URL_PATTERN)
     direct_path_pattern = re.compile(DIRECT_PATH_PATTERN)
     mime_pattern = re.compile(MIME_PATTERN)
@@ -648,6 +819,96 @@ def _load_records_from_regex_fallback(source_config: dict) -> list[StatusRecord]
     return records
 
 
+def _extract_firefox_message_type(message_blob: bytes) -> str | None:
+    match = FIREFOX_TYPE_PATTERN.search(message_blob)
+    if not match:
+        return None
+    return match.group(1).decode("utf-8", "ignore")
+
+
+def _extract_firefox_status_id(message_blob: bytes) -> str | None:
+    match = FIREFOX_STATUS_ID_PATTERN.search(message_blob)
+    if not match:
+        return None
+    return match.group(1).decode("utf-8", "ignore")
+
+
+def _extract_firefox_direct_path(message_blob: bytes) -> str | None:
+    marker_index = message_blob.find(b"directPath")
+    if marker_index < 0:
+        return None
+
+    path_index = message_blob.find(b"/", marker_index)
+    if path_index < 0 or path_index - marker_index > 48:
+        return None
+
+    extracted = _extract_ascii_run(message_blob, path_index, URL_SAFE_BYTES)
+    return extracted if extracted and extracted.startswith("/") else None
+
+
+def _extract_firefox_filehash(message_blob: bytes) -> str | None:
+    return _extract_base64_after_marker(message_blob, b"filehash")
+
+
+def _extract_firefox_media_key(message_blob: bytes) -> str | None:
+    media_key = _extract_base64_after_marker(message_blob, b"mediaKey")
+    if media_key:
+        return media_key
+
+    filehash_match = FIREFOX_FILEHASH_PATTERN.search(message_blob)
+    if not filehash_match:
+        return None
+
+    search_start = filehash_match.start()
+    search_end = min(len(message_blob), search_start + 900)
+    key_index = message_blob.find(b"Key", search_start, search_end)
+    if key_index < 0:
+        return None
+    return _extract_base64_after_marker(message_blob[key_index:], b"Key")
+
+
+def _extract_firefox_enc_filehash(message_blob: bytes) -> str | None:
+    return _extract_base64_after_marker(message_blob, b"encF")
+
+
+def _extract_firefox_timestamp(message_blob: bytes) -> float:
+    marker_index = message_blob.find(b".8\x00\x08fro")
+    if marker_index < 4:
+        return 0.0
+
+    timestamp = int.from_bytes(
+        message_blob[marker_index - 4:marker_index],
+        byteorder="little",
+        signed=False,
+    )
+    if 1_500_000_000 <= timestamp <= 2_200_000_000:
+        return float(timestamp)
+    return 0.0
+
+
+def _extract_base64_after_marker(
+    message_blob: bytes,
+    marker: bytes,
+    lookahead: int = 160,
+) -> str | None:
+    marker_index = message_blob.find(marker)
+    if marker_index < 0:
+        return None
+
+    region = message_blob[marker_index + len(marker): marker_index + len(marker) + lookahead]
+    match = BASE64_TOKEN_PATTERN.search(region)
+    if not match:
+        return None
+    return match.group(0).decode("utf-8", "ignore")
+
+
+def _extract_ascii_run(message_blob: bytes, start_index: int, allowed_bytes: bytes) -> str:
+    end_index = start_index
+    while end_index < len(message_blob) and message_blob[end_index] in allowed_bytes:
+        end_index += 1
+    return message_blob[start_index:end_index].decode("utf-8", "ignore")
+
+
 def _download_plaintext_payload(record: StatusRecord) -> bytes | None:
     for url in _candidate_urls(record):
         try:
@@ -687,7 +948,7 @@ def _decrypt_media(record: StatusRecord, payload: bytes) -> bytes | None:
     if not record.media_key or record.kind not in MEDIA_INFO_BY_KIND or len(payload) <= 10:
         return None
 
-    media_key = base64.b64decode(record.media_key)
+    media_key = _decode_base64_value(record.media_key)
     expanded_key = HKDF(
         algorithm=hashes.SHA256(),
         length=112,
@@ -725,7 +986,7 @@ def _candidate_urls(record: StatusRecord) -> list[str]:
 def _cache_path_for_record(record: StatusRecord) -> str:
     extension = _extension_for_mimetype(record.mimetype)
     safe_name = base64.urlsafe_b64encode(
-        base64.b64decode(record.filehash)
+        _decode_base64_value(record.filehash)
     ).decode("ascii").rstrip("=")
     return os.path.join(STATUS_MEDIA_CACHE_DIR, record.kind, f"{safe_name}{extension}")
 
@@ -757,8 +1018,21 @@ def _extract_group(pattern, window: bytes) -> str | None:
 def _matches_sha256(payload: bytes, expected_hash: str | None) -> bool:
     if not expected_hash:
         return False
-    actual_hash = base64.b64encode(hashlib.sha256(payload).digest()).decode("ascii")
-    return actual_hash == expected_hash
+    actual_hash = base64.b64encode(hashlib.sha256(payload).digest()).decode("ascii").rstrip("=")
+    normalized_expected = expected_hash.rstrip("=")
+    if actual_hash == normalized_expected:
+        return True
+
+    # Firefox occasionally exposes a one-character-truncated base64 hash in IndexedDB.
+    if len(actual_hash) == len(normalized_expected) + 1:
+        return actual_hash.endswith(normalized_expected) or actual_hash.startswith(normalized_expected)
+    return False
+
+
+def _decode_base64_value(value: str) -> bytes:
+    normalized = value.strip()
+    padding = "=" * (-len(normalized) % 4)
+    return base64.b64decode(f"{normalized}{padding}")
 
 
 def _normalize_direct_path(path: str) -> str:

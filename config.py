@@ -39,13 +39,18 @@ CHROME_USER_DATA_ROOT = os.path.expandvars(
 EDGE_USER_DATA_ROOT = os.path.expandvars(
     r"%LOCALAPPDATA%\Microsoft\Edge\User Data"
 )
+FIREFOX_PROFILE_ROOT = os.path.expandvars(
+    r"%APPDATA%\Mozilla\Firefox\Profiles"
+)
 WINDOWS_WEB_BROWSER_ROOTS = {
     "chrome": CHROME_USER_DATA_ROOT,
     "edge": EDGE_USER_DATA_ROOT,
+    "firefox": FIREFOX_PROFILE_ROOT,
 }
 WINDOWS_WEB_BROWSER_LABELS = {
     "chrome": "Chrome",
     "edge": "Edge",
+    "firefox": "Firefox",
 }
 
 
@@ -105,6 +110,9 @@ def _get_browser_profile_dirs(browser):
     for entry in os.scandir(browser_root):
         if not entry.is_dir():
             continue
+        if browser == "firefox":
+            profile_dirs.append(entry.path)
+            continue
         if entry.name == "Default" or entry.name.startswith("Profile "):
             profile_dirs.append(entry.path)
     return sorted(profile_dirs)
@@ -112,16 +120,26 @@ def _get_browser_profile_dirs(browser):
 
 def _browser_whatsapp_paths(browser, profile_dir):
     profile_name = os.path.basename(profile_dir)
-    indexeddb_dir = os.path.join(
-        profile_dir,
-        "IndexedDB",
-        "https_web.whatsapp.com_0.indexeddb.leveldb",
-    )
-    blob_dir = os.path.join(
-        profile_dir,
-        "IndexedDB",
-        "https_web.whatsapp.com_0.indexeddb.blob",
-    )
+    if browser == "firefox":
+        origin_dir = os.path.join(
+            profile_dir,
+            "storage",
+            "default",
+            "https+++web.whatsapp.com",
+        )
+        indexeddb_dir = os.path.join(origin_dir, "idb")
+        blob_dir = os.path.join(origin_dir, "cache")
+    else:
+        indexeddb_dir = os.path.join(
+            profile_dir,
+            "IndexedDB",
+            "https_web.whatsapp.com_0.indexeddb.leveldb",
+        )
+        blob_dir = os.path.join(
+            profile_dir,
+            "IndexedDB",
+            "https_web.whatsapp.com_0.indexeddb.blob",
+        )
     return {
         "browser": browser,
         "browser_label": get_web_browser_label(browser),
