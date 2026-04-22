@@ -153,7 +153,7 @@ def refresh_status_cache(
         selected_web_browser,
         selected_web_profile,
     )
-    if source_mode == "desktop":
+    if source_mode in {"desktop", "all"}:
         get_all_status_files.cache_clear()
 
 
