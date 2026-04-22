@@ -19,8 +19,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from config import (
     STATUS_MEDIA_CACHE_DIR,
-    WHATSAPP_WEBVIEW_BLOB_DIR,
-    WHATSAPP_WEBVIEW_INDEXEDDB_DIR,
+    get_status_source_config,
 )
 
 try:
@@ -54,7 +53,6 @@ WINDOW_BYTES_AFTER = 2200
 STATUS_KEY_NEEDLE_UTF16 = STATUS_MARKER.decode("ascii").encode("utf-16-be")
 MESSAGE_DATABASE_NAME = "model-storage"
 MESSAGE_OBJECT_STORE_NAME = "message"
-INDEX_CACHE_FILE = os.path.join(STATUS_MEDIA_CACHE_DIR, "_status_index_cache.json")
 INDEX_CACHE_MAX_AGE_SECONDS = 15 * 60
 MAX_CACHE_WORKERS = 6
 
@@ -77,7 +75,7 @@ HTTP_HEADERS = {
     "Referer": "https://web.whatsapp.com/",
 }
 
-_STATUS_RECORD_CACHE: tuple[str, list["StatusRecord"]] | None = None
+_STATUS_RECORD_CACHE: dict[str, tuple[str, list["StatusRecord"]]] = {}
 
 
 @dataclass(frozen=True)
@@ -94,21 +92,32 @@ class StatusRecord:
     source_offset: int
     timestamp: float
     author_jid: str | None
+    source_key: str
+    source_label: str
+    source_indexeddb_dir: str
+    source_blob_dir: str | None
 
 
-def has_webview_status_source() -> bool:
-    return os.path.isdir(WHATSAPP_WEBVIEW_INDEXEDDB_DIR)
+def has_webview_status_source(source_mode: str = "desktop") -> bool:
+    source_config = get_status_source_config(source_mode)
+    return os.path.isdir(source_config["indexeddb_dir"])
 
 
 def get_webview_status_files(
     file_type: str,
     page: int = 1,
     items_per_page: int | None = None,
+    source_mode: str = "desktop",
 ) -> list[str]:
     if file_type not in {"photos", "videos"}:
         return []
 
-    records = get_webview_status_records(file_type, page=page, items_per_page=items_per_page)
+    records = get_webview_status_records(
+        file_type,
+        page=page,
+        items_per_page=items_per_page,
+        source_mode=source_mode,
+    )
     if not records:
         return []
 
@@ -146,11 +155,16 @@ def get_webview_status_records(
     file_type: str,
     page: int = 1,
     items_per_page: int | None = None,
+    source_mode: str = "desktop",
 ) -> list[StatusRecord]:
     if file_type not in {"photos", "videos"}:
         return []
 
-    records = [record for record in _load_all_status_records() if record.kind == file_type]
+    records = [
+        record
+        for record in _load_all_status_records(source_mode)
+        if record.kind == file_type
+    ]
     if items_per_page is None or items_per_page <= 0:
         return records
 
@@ -159,8 +173,8 @@ def get_webview_status_records(
     return records[start:stop]
 
 
-def iter_status_records(file_type: str) -> Iterable[StatusRecord]:
-    for record in _load_all_status_records():
+def iter_status_records(file_type: str, source_mode: str = "desktop") -> Iterable[StatusRecord]:
+    for record in _load_all_status_records(source_mode):
         if record.kind == file_type:
             yield record
 
@@ -196,37 +210,43 @@ def get_cached_record_path(record: StatusRecord) -> str | None:
     return cache_path if os.path.exists(cache_path) else None
 
 
-def _load_all_status_records() -> list[StatusRecord]:
+def _load_all_status_records(source_mode: str = "desktop") -> list[StatusRecord]:
     global _STATUS_RECORD_CACHE
 
-    if not has_webview_status_source():
+    source_config = get_status_source_config(source_mode)
+    source_key = source_config["key"]
+
+    if not has_webview_status_source(source_mode):
         return []
 
-    snapshot = _build_indexeddb_snapshot()
-    if _STATUS_RECORD_CACHE and _STATUS_RECORD_CACHE[0] == snapshot:
-        return list(_STATUS_RECORD_CACHE[1])
+    snapshot = _build_indexeddb_snapshot(source_config)
+    cached_snapshot = _STATUS_RECORD_CACHE.get(source_key)
+    if cached_snapshot and cached_snapshot[0] == snapshot:
+        return list(cached_snapshot[1])
 
-    cached_records = _load_cached_records(snapshot)
+    cached_records = _load_cached_records(source_key, snapshot)
     if cached_records is not None:
-        _STATUS_RECORD_CACHE = (snapshot, cached_records)
+        _STATUS_RECORD_CACHE[source_key] = (snapshot, cached_records)
         return list(cached_records)
 
     if HAS_INDEXEDDB_MESSAGE_PARSER:
-        records = _load_records_from_message_store()
+        records = _load_records_from_message_store(source_config)
         if records:
-            _STATUS_RECORD_CACHE = (snapshot, records)
-            _write_cached_records(snapshot, records)
+            _STATUS_RECORD_CACHE[source_key] = (snapshot, records)
+            _write_cached_records(source_key, snapshot, records)
             return list(records)
 
-    records = _load_records_from_regex_fallback()
-    _STATUS_RECORD_CACHE = (snapshot, records)
-    _write_cached_records(snapshot, records)
+    records = _load_records_from_regex_fallback(source_config)
+    _STATUS_RECORD_CACHE[source_key] = (snapshot, records)
+    _write_cached_records(source_key, snapshot, records)
     return list(records)
 
 
-def _load_records_from_message_store() -> list[StatusRecord]:
-    blob_dir = WHATSAPP_WEBVIEW_BLOB_DIR if os.path.isdir(WHATSAPP_WEBVIEW_BLOB_DIR) else None
-    indexed_db = IndexedDb(WHATSAPP_WEBVIEW_INDEXEDDB_DIR, blob_dir)
+def _load_records_from_message_store(source_config: dict) -> list[StatusRecord]:
+    indexeddb_dir = source_config["indexeddb_dir"]
+    source_blob_dir = source_config.get("blob_dir")
+    blob_dir = source_blob_dir if source_blob_dir and os.path.isdir(source_blob_dir) else None
+    indexed_db = IndexedDb(indexeddb_dir, blob_dir)
     try:
         database_id = _get_database_id(indexed_db, MESSAGE_DATABASE_NAME)
         object_store_id = _get_object_store_id(indexed_db, database_id, MESSAGE_OBJECT_STORE_NAME)
@@ -265,7 +285,12 @@ def _load_records_from_message_store() -> list[StatusRecord]:
 
         records: list[StatusRecord] = []
         for sequence_number, origin_file, message in latest_messages.values():
-            record = _build_status_record_from_message(message, origin_file, sequence_number)
+            record = _build_status_record_from_message(
+                message,
+                origin_file,
+                sequence_number,
+                source_config,
+            )
             if record:
                 records.append(record)
 
@@ -317,6 +342,7 @@ def _build_status_record_from_message(
     message: dict,
     source_file: str,
     source_offset: int,
+    source_config: dict,
 ) -> StatusRecord | None:
     message_type = _as_string(message.get("type"))
     if message_type == "image":
@@ -350,6 +376,10 @@ def _build_status_record_from_message(
         source_offset=source_offset,
         timestamp=float(message.get("t") or 0.0),
         author_jid=_serialized_jid(message.get("author")),
+        source_key=source_config["key"],
+        source_label=source_config["label"],
+        source_indexeddb_dir=source_config["indexeddb_dir"],
+        source_blob_dir=source_config.get("blob_dir"),
     )
 
 
@@ -392,9 +422,9 @@ def _get_object_store_id(indexed_db: IndexedDb, database_id: int, object_store_n
     )
 
 
-def _build_indexeddb_snapshot() -> str:
+def _build_indexeddb_snapshot(source_config: dict) -> str:
     snapshot_parts: list[str] = []
-    for root_dir in [WHATSAPP_WEBVIEW_INDEXEDDB_DIR, WHATSAPP_WEBVIEW_BLOB_DIR]:
+    for root_dir in [source_config["indexeddb_dir"], source_config.get("blob_dir")]:
         if not root_dir or not os.path.exists(root_dir):
             continue
 
@@ -416,12 +446,24 @@ def _build_indexeddb_snapshot() -> str:
     return digest.hexdigest()
 
 
-def _load_cached_records(snapshot: str) -> list[StatusRecord] | None:
-    if not os.path.exists(INDEX_CACHE_FILE):
+def _index_cache_file_for_source(source_key: str) -> str:
+    safe_source_key = "".join(
+        char if char.isalnum() or char in {"-", "_"} else "-"
+        for char in source_key
+    )
+    return os.path.join(
+        STATUS_MEDIA_CACHE_DIR,
+        f"_status_index_cache_{safe_source_key}.json",
+    )
+
+
+def _load_cached_records(source_key: str, snapshot: str) -> list[StatusRecord] | None:
+    index_cache_file = _index_cache_file_for_source(source_key)
+    if not os.path.exists(index_cache_file):
         return None
 
     try:
-        with open(INDEX_CACHE_FILE, "r", encoding="utf-8") as cache_file:
+        with open(index_cache_file, "r", encoding="utf-8") as cache_file:
             payload = json.load(cache_file)
     except (OSError, ValueError, TypeError):
         return None
@@ -444,7 +486,8 @@ def _load_cached_records(snapshot: str) -> list[StatusRecord] | None:
         return None
 
 
-def _write_cached_records(snapshot: str, records: list[StatusRecord]) -> None:
+def _write_cached_records(source_key: str, snapshot: str, records: list[StatusRecord]) -> None:
+    index_cache_file = _index_cache_file_for_source(source_key)
     payload = {
         "generated_at": time.time(),
         "snapshot": snapshot,
@@ -456,19 +499,19 @@ def _write_cached_records(snapshot: str, records: list[StatusRecord]) -> None:
         with tempfile.NamedTemporaryFile(
             "w",
             delete=False,
-            dir=os.path.dirname(INDEX_CACHE_FILE),
+            dir=os.path.dirname(index_cache_file),
             suffix=".tmp",
             encoding="utf-8",
         ) as temp_handle:
             json.dump(payload, temp_handle)
             temp_file = temp_handle.name
-        os.replace(temp_file, INDEX_CACHE_FILE)
+        os.replace(temp_file, index_cache_file)
     except OSError:
         if temp_file and os.path.exists(temp_file):
             os.unlink(temp_file)
 
 
-def _load_records_from_regex_fallback() -> list[StatusRecord]:
+def _load_records_from_regex_fallback(source_config: dict) -> list[StatusRecord]:
     import re
 
     status_url_pattern = re.compile(STATUS_URL_PATTERN)
@@ -481,11 +524,15 @@ def _load_records_from_regex_fallback() -> list[StatusRecord]:
     records: list[StatusRecord] = []
     dedupe_keys: set[str] = set()
 
-    for file_name in sorted(os.listdir(WHATSAPP_WEBVIEW_INDEXEDDB_DIR), reverse=True):
+    indexeddb_dir = source_config["indexeddb_dir"]
+    if not os.path.isdir(indexeddb_dir):
+        return records
+
+    for file_name in sorted(os.listdir(indexeddb_dir), reverse=True):
         if not file_name.endswith((".ldb", ".log")):
             continue
 
-        source_path = os.path.join(WHATSAPP_WEBVIEW_INDEXEDDB_DIR, file_name)
+        source_path = os.path.join(indexeddb_dir, file_name)
         try:
             with open(source_path, "rb") as file_handle:
                 blob = file_handle.read()
@@ -535,6 +582,10 @@ def _load_records_from_regex_fallback() -> list[StatusRecord]:
                     source_offset=match.start(),
                     timestamp=0.0,
                     author_jid=None,
+                    source_key=source_config["key"],
+                    source_label=source_config["label"],
+                    source_indexeddb_dir=source_config["indexeddb_dir"],
+                    source_blob_dir=source_config.get("blob_dir"),
                 )
             )
 

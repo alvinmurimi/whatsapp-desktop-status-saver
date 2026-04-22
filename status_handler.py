@@ -22,7 +22,14 @@ def _paginate(files, page=1, items_per_page=None):
     return files[start:end]
 
 
-def load_statuses(file_type, save_dir, page=1, items_per_page=None, materialize=True):
+def load_statuses(
+    file_type,
+    save_dir,
+    page=1,
+    items_per_page=None,
+    materialize=True,
+    source_mode="desktop",
+):
     try:
         if file_type == "downloads":
             if not os.path.isdir(save_dir):
@@ -40,6 +47,7 @@ def load_statuses(file_type, save_dir, page=1, items_per_page=None, materialize=
             file_type,
             page=page,
             items_per_page=items_per_page,
+            source_mode=source_mode,
         )
         if webview_records:
             if materialize:
@@ -47,8 +55,12 @@ def load_statuses(file_type, save_dir, page=1, items_per_page=None, materialize=
                     file_type,
                     page=page,
                     items_per_page=items_per_page,
+                    source_mode=source_mode,
                 )
             return webview_records
+
+        if source_mode != "desktop":
+            return []
 
         all_files = get_all_status_files(file_type)
         all_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
@@ -58,7 +70,7 @@ def load_statuses(file_type, save_dir, page=1, items_per_page=None, materialize=
         return []
 
 
-def count_statuses(file_type, save_dir):
+def count_statuses(file_type, save_dir, source_mode="desktop"):
     try:
         if file_type == "downloads":
             if not os.path.isdir(save_dir):
@@ -69,9 +81,17 @@ def count_statuses(file_type, save_dir):
                 if os.path.isfile(os.path.join(save_dir, file_name))
             )
 
-        webview_records = get_webview_status_records(file_type, page=1, items_per_page=None)
+        webview_records = get_webview_status_records(
+            file_type,
+            page=1,
+            items_per_page=None,
+            source_mode=source_mode,
+        )
         if webview_records:
             return len(webview_records)
+
+        if source_mode != "desktop":
+            return 0
 
         return len(get_all_status_files(file_type))
     except Exception as e:
@@ -102,7 +122,7 @@ def warm_status_previews(items):
 
 def get_status_item_key(item):
     if isinstance(item, StatusRecord):
-        return item.status_id
+        return f"{item.source_key}:{item.status_id}"
     if isinstance(item, str):
         return item
     return str(item)
