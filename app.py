@@ -23,9 +23,14 @@ from ui import (
 from status_handler import (
     count_statuses,
     get_status_item_key,
+    get_status_preview_path,
     load_statuses,
     refresh_status_cache,
     warm_status_previews,
+)
+from live_text_hydration import (
+    hydrate_live_text_records,
+    records_need_live_hydration,
 )
 from utils import get_cached_thumbnail
 
@@ -91,12 +96,19 @@ async def main(page: ft.Page):
         else ft.ThemeMode.LIGHT
     )
     current_source = settings.get("discovery_source", "desktop")
-    if current_source not in {"desktop", "web"}:
+    if current_source not in {"desktop", "web", "all"}:
         current_source = "desktop"
     current_web_browser = settings.get("web_browser", "chrome")
     if current_web_browser not in get_supported_web_browsers():
         current_web_browser = "chrome"
     current_web_profile = settings.get("web_profile", "")
+    auto_refresh_enabled = bool(settings.get("auto_refresh_enabled", False))
+    current_scroll_pixels = 0.0
+    pending_auto_refresh = {
+        "index": None,
+        "message": "",
+    }
+    auto_refresh_snapshots = {}
 
     # ── Theme ──────────────────────────────────────────────────────────────────
     page.theme = ft.Theme(color_scheme_seed=ft.Colors.TEAL, use_material3=True)
@@ -116,6 +128,9 @@ async def main(page: ft.Page):
     pick_directory_dialog = ft.FilePicker()
     if pick_directory_dialog not in page.services:
         page.services.append(pick_directory_dialog)
+    clipboard_service = ft.Clipboard()
+    if clipboard_service not in page.services:
+        page.services.append(clipboard_service)
 
     current_view = {
         "token": 0,
@@ -160,6 +175,8 @@ async def main(page: ft.Page):
     desktop_pill_icon = ft.Icon(ft.Icons.COMPUTER, size=15)
     web_pill_label = ft.Text("Web", size=13, weight=ft.FontWeight.W_500)
     web_pill_icon = ft.Icon(ft.Icons.LANGUAGE, size=15)
+    all_pill_label = ft.Text("All", size=13, weight=ft.FontWeight.W_500)
+    all_pill_icon = ft.Icon(ft.Icons.APPS, size=15)
 
     desktop_pill = ft.Container(
         content=ft.Row(
@@ -179,8 +196,19 @@ async def main(page: ft.Page):
             tight=True,
         ),
         padding=ft.padding.symmetric(horizontal=16, vertical=9),
-        border_radius=ft.BorderRadius(0, 20, 20, 0),
+        border_radius=ft.BorderRadius(0, 0, 0, 0),
         on_click=lambda _: page.run_task(change_source, "web"),
+        ink=True,
+    )
+    all_pill = ft.Container(
+        content=ft.Row(
+            [all_pill_icon, all_pill_label],
+            spacing=6,
+            tight=True,
+        ),
+        padding=ft.padding.symmetric(horizontal=16, vertical=9),
+        border_radius=ft.BorderRadius(0, 20, 20, 0),
+        on_click=lambda _: page.run_task(change_source, "all"),
         ink=True,
     )
 
@@ -255,13 +283,24 @@ async def main(page: ft.Page):
         web_profile_dropdown.visible = current_source == "web"
 
     def refresh_source_pill_style():
-        is_desktop = current_source == "desktop"
-        desktop_pill.bgcolor = ft.Colors.PRIMARY_CONTAINER if is_desktop else None
-        web_pill.bgcolor = ft.Colors.PRIMARY_CONTAINER if not is_desktop else None
-        desktop_pill_label.color = ft.Colors.ON_PRIMARY_CONTAINER if is_desktop else ft.Colors.ON_SURFACE_VARIANT
-        web_pill_label.color = ft.Colors.ON_PRIMARY_CONTAINER if not is_desktop else ft.Colors.ON_SURFACE_VARIANT
-        desktop_pill_icon.color = ft.Colors.ON_PRIMARY_CONTAINER if is_desktop else ft.Colors.ON_SURFACE_VARIANT
-        web_pill_icon.color = ft.Colors.ON_PRIMARY_CONTAINER if not is_desktop else ft.Colors.ON_SURFACE_VARIANT
+        pill_specs = [
+            ("desktop", desktop_pill, desktop_pill_label, desktop_pill_icon),
+            ("web", web_pill, web_pill_label, web_pill_icon),
+            ("all", all_pill, all_pill_label, all_pill_icon),
+        ]
+        for source_name, pill, label, icon in pill_specs:
+            is_selected = current_source == source_name
+            pill.bgcolor = ft.Colors.PRIMARY_CONTAINER if is_selected else None
+            label.color = (
+                ft.Colors.ON_PRIMARY_CONTAINER
+                if is_selected
+                else ft.Colors.ON_SURFACE_VARIANT
+            )
+            icon.color = (
+                ft.Colors.ON_PRIMARY_CONTAINER
+                if is_selected
+                else ft.Colors.ON_SURFACE_VARIANT
+            )
 
     def refresh_source_controls():
         refresh_source_pill_style()
@@ -277,7 +316,7 @@ async def main(page: ft.Page):
         settings["discovery_source"] = new_source
         save_settings(settings)
         refresh_source_controls()
-        if current_view["index"] in (0, 1):
+        if current_view["index"] in (0, 1, 2):
             await show_content(current_view["index"])
         else:
             page.update()
@@ -292,7 +331,7 @@ async def main(page: ft.Page):
         settings["web_profile"] = current_web_profile
         save_settings(settings)
         refresh_source_controls()
-        if current_source == "web" and current_view["index"] in (0, 1):
+        if current_source == "web" and current_view["index"] in (0, 1, 2):
             await show_content(current_view["index"])
         else:
             page.update()
@@ -305,7 +344,7 @@ async def main(page: ft.Page):
         current_web_profile = selected_profile
         settings["web_profile"] = current_web_profile
         save_settings(settings)
-        if current_source == "web" and current_view["index"] in (0, 1):
+        if current_source == "web" and current_view["index"] in (0, 1, 2):
             await show_content(current_view["index"])
         else:
             page.update()
@@ -313,7 +352,7 @@ async def main(page: ft.Page):
     web_profile_dropdown.on_select = change_web_profile
 
     async def refresh_current_view(_=None):
-        if current_view["index"] in (0, 1):
+        if current_view["index"] in (0, 1, 2):
             await asyncio.to_thread(
                 refresh_status_cache,
                 current_source,
@@ -324,23 +363,40 @@ async def main(page: ft.Page):
 
     # ── Helpers ────────────────────────────────────────────────────────────────
     def get_file_type(index):
-        return {0: "photos", 1: "videos", 2: "downloads"}.get(index)
+        return {0: "photos", 1: "videos", 2: "texts", 3: "downloads"}.get(index)
 
     def get_source_label():
         if current_source == "desktop":
             return "WhatsApp Desktop"
+        if current_source == "all":
+            return "All local sources"
         if current_web_profile:
             return (
                 f"WhatsApp Web ({get_web_browser_label(current_web_browser)}"
-                f" · {get_current_profile_display_name()})"
+                f" - {get_current_profile_display_name()})"
             )
         return f"WhatsApp Web ({get_web_browser_label(current_web_browser)})"
+
+    def get_source_signature():
+        return (current_source, current_web_browser, current_web_profile)
+
+    def get_media_tab_indexes():
+        return (0, 1, 2)
+
+    def get_media_file_types():
+        return ("photos", "videos", "texts")
 
     # ── Render functions ───────────────────────────────────────────────────────
     def render_empty_state(file_type):
         if file_type == "downloads":
             msg = "Status you save will appear here."
             icon = ft.Icons.FOLDER
+        elif file_type == "texts":
+            msg = f"No text statuses found from {get_source_label()}."
+            icon = ft.Icons.FORMAT_QUOTE
+        elif current_source == "all":
+            msg = f"No {file_type} found from {get_source_label()}."
+            icon = ft.Icons.APPS
         elif current_source == "web":
             browser_label = get_web_browser_label(current_web_browser)
             msg = (
@@ -397,8 +453,8 @@ async def main(page: ft.Page):
             )
         ]
 
-    def render_loading(message="Loading..."):
-        page_content.controls = [build_loading_state(message)]
+    def render_loading(message="Loading...", detail=None):
+        page_content.controls = [build_loading_state(message, detail)]
 
     def update_media_footer():
         shown = len(current_view["items"])
@@ -406,9 +462,9 @@ async def main(page: ft.Page):
         ftype = current_view["file_type"]
         footer = f"Showing {shown} of {total} {ftype} from {get_source_label()}"
         if current_view["is_loading_more"]:
-            footer += " · Loading more…"
+            footer += " - Loading more..."
         elif not current_view["has_more"]:
-            footer += " · All loaded"
+            footer += " - All loaded"
         media_footer_label.value = footer
 
     def ensure_media_content():
@@ -430,14 +486,44 @@ async def main(page: ft.Page):
                 save_dir,
                 lambda result: show_snack_bar(page, result),
                 eager_thumbnail=False,
+                on_copy_text=copy_text_to_clipboard,
             )
             card_handle.control.col = {"sm": 6, "md": 4, "lg": 3, "xl": 2}
             media_grid.controls.append(card_handle.control)
             current_view["card_handles"][item_key] = card_handle
 
+    def sync_media_items(items):
+        next_controls = []
+        next_handles = {}
+        for item in items:
+            item_key = get_status_item_key(item)
+            card_handle = current_view["card_handles"].get(item_key)
+            if card_handle is None:
+                card_handle = build_status_card(
+                    item,
+                    False,
+                    save_dir,
+                    lambda result: show_snack_bar(page, result),
+                    eager_thumbnail=False,
+                    on_copy_text=copy_text_to_clipboard,
+                )
+                card_handle.control.col = {"sm": 6, "md": 4, "lg": 3, "xl": 2}
+            next_controls.append(card_handle.control)
+            next_handles[item_key] = card_handle
+
+        media_grid.controls = next_controls
+        current_view["card_handles"] = next_handles
+
     def render_media_content():
         ensure_media_content()
         update_media_footer()
+
+    async def copy_text_to_clipboard(text_value):
+        try:
+            await clipboard_service.set(text_value)
+            show_snack_bar(page, "Copied text")
+        except Exception as error:
+            show_snack_bar(page, f"Error copying text: {error}")
 
     def render_downloads_content(items):
         if not items:
@@ -470,9 +556,33 @@ async def main(page: ft.Page):
         for file_path in paths:
             get_cached_thumbnail(file_path)
 
+    async def hydrate_texts_in_background(load_token, index, items):
+        if not records_need_live_hydration(items):
+            return
+        result = await asyncio.to_thread(hydrate_live_text_records, items)
+        updated = int(result.get("updated") or 0)
+        if updated <= 0:
+            return
+
+        message = f"Updated {updated} text status{'es' if updated != 1 else ''}"
+        if current_view["index"] == index and current_view["token"] == load_token:
+            await silent_refresh_current_view(message)
+        else:
+            show_snack_bar(page, message)
+
     async def warm_current_batch(load_token, index, items):
         if not items:
             return
+        text_items_to_prepare = [
+            item
+            for item in items
+            if getattr(item, "kind", None) == "texts" and not get_status_preview_path(item)
+        ]
+        if text_items_to_prepare:
+            show_snack_bar(
+                page,
+                f"Preparing {len(text_items_to_prepare)} text preview{'s' if len(text_items_to_prepare) != 1 else ''}",
+            )
         warmed_paths = await asyncio.to_thread(warm_status_previews, items)
         if warmed_paths:
             await asyncio.to_thread(warm_thumbnails, warmed_paths)
@@ -487,14 +597,141 @@ async def main(page: ft.Page):
             refreshed = True
         if refreshed:
             page.update()
+        if text_items_to_prepare:
+            show_snack_bar(
+                page,
+                f"{len(text_items_to_prepare)} text preview{'s' if len(text_items_to_prepare) != 1 else ''} ready",
+            )
+            page.run_task(hydrate_texts_in_background, load_token, index, list(items))
 
     async def refresh_downloads():
-        await show_content(2)
+        await show_content(3)
+
+    async def silent_refresh_current_view(message=None):
+        if current_view["index"] not in get_media_tab_indexes():
+            return
+
+        index = current_view["index"]
+        file_type = current_view["file_type"]
+        load_token = current_view["token"] + 1
+        current_view["token"] = load_token
+
+        total_count = await asyncio.to_thread(
+            count_statuses,
+            file_type,
+            save_dir,
+            current_source,
+            current_web_browser,
+            current_web_profile,
+        )
+        target_count = max(current_view["loaded_count"], MEDIA_BATCH_SIZE)
+        target_count = min(max(target_count + 12, MEDIA_BATCH_SIZE), max(total_count, MEDIA_BATCH_SIZE))
+        latest_items = await asyncio.to_thread(
+            load_statuses,
+            file_type,
+            save_dir,
+            1,
+            target_count,
+            False,
+            current_source,
+            current_web_browser,
+            current_web_profile,
+        )
+
+        if current_view["index"] != index or current_view["token"] != load_token:
+            return
+
+        previous_keys = {get_status_item_key(item) for item in current_view["items"]}
+        current_view["items"] = list(latest_items)
+        current_view["loaded_count"] = len(current_view["items"])
+        current_view["total_count"] = total_count
+        current_view["has_more"] = current_view["loaded_count"] < total_count
+        sync_media_items(current_view["items"])
+        render_media_content()
+        page.update()
+
+        new_items = [
+            item for item in current_view["items"]
+            if get_status_item_key(item) not in previous_keys
+        ]
+        if new_items:
+            page.run_task(warm_current_batch, load_token, index, new_items[:PREVIEW_BATCH_SIZE])
+        if message:
+            show_snack_bar(page, message)
+
+    async def apply_pending_auto_refresh():
+        if pending_auto_refresh["index"] != current_view["index"]:
+            return
+        message = pending_auto_refresh["message"]
+        pending_auto_refresh["index"] = None
+        pending_auto_refresh["message"] = ""
+        await silent_refresh_current_view(message)
+
+    async def background_refresh_loop():
+        while True:
+            await asyncio.sleep(45)
+            if not auto_refresh_enabled:
+                continue
+
+            source_signature = get_source_signature()
+            snapshot = {}
+            for file_type in get_media_file_types():
+                total = await asyncio.to_thread(
+                    count_statuses,
+                    file_type,
+                    save_dir,
+                    current_source,
+                    current_web_browser,
+                    current_web_profile,
+                )
+                latest_items = await asyncio.to_thread(
+                    load_statuses,
+                    file_type,
+                    save_dir,
+                    1,
+                    1,
+                    False,
+                    current_source,
+                    current_web_browser,
+                    current_web_profile,
+                )
+                latest_key = get_status_item_key(latest_items[0]) if latest_items else None
+                snapshot[file_type] = (total, latest_key)
+
+            previous_snapshot = auto_refresh_snapshots.get(source_signature)
+            auto_refresh_snapshots[source_signature] = snapshot
+            if previous_snapshot is None:
+                continue
+
+            changed_types = [
+                file_type
+                for file_type in get_media_file_types()
+                if snapshot.get(file_type) != previous_snapshot.get(file_type)
+            ]
+            if not changed_types:
+                continue
+
+            delta = sum(
+                max(0, snapshot[file_type][0] - previous_snapshot.get(file_type, (0, None))[0])
+                for file_type in changed_types
+            )
+            if delta > 0:
+                message = f"{delta} new status{'es' if delta != 1 else ''} found in background"
+            else:
+                labels = ", ".join(changed_types)
+                message = f"Background refresh updated {labels}"
+
+            if current_view["index"] in get_media_tab_indexes() and current_scroll_pixels <= 8 and not current_view["is_loading_more"]:
+                await silent_refresh_current_view(message)
+            else:
+                pending_auto_refresh["index"] = current_view["index"]
+                pending_auto_refresh["message"] = message
+                show_snack_bar(page, message)
 
     # ── Infinite scroll ────────────────────────────────────────────────────────
     async def maybe_load_more():
         if (
-            current_view["index"] not in (0, 1)
+            current_view["index"] not in (0, 1, 2)
             or current_view["is_loading_more"]
             or not current_view["has_more"]
         ):
@@ -510,7 +747,11 @@ async def main(page: ft.Page):
             page.update()
 
     async def on_content_scroll(e: ft.OnScrollEvent):
-        if current_view["index"] not in (0, 1):
+        nonlocal current_scroll_pixels
+        current_scroll_pixels = e.pixels
+        if pending_auto_refresh["index"] is not None and current_scroll_pixels <= 8:
+            page.run_task(apply_pending_auto_refresh)
+        if current_view["index"] not in (0, 1, 2):
             return
         if current_view["is_loading_more"] or not current_view["has_more"]:
             return
@@ -523,8 +764,8 @@ async def main(page: ft.Page):
 
     # ── Main content loader ────────────────────────────────────────────────────
     async def show_content(index, append=False):
-        if index == 3:
-            current_view["index"] = 3
+        if index == 4:
+            current_view["index"] = 4
             show_settings()
             page.update()
             return
@@ -544,13 +785,16 @@ async def main(page: ft.Page):
             current_view["is_loading_more"] = False
             reset_media_content()
             if file_type == "downloads":
-                render_loading("Loading your saved files…")
+                render_loading("Loading saved items...", "Checking your downloads folder")
             elif current_source == "desktop":
-                render_loading(f"Scanning WhatsApp Desktop for {file_type}…")
+                render_loading(f"Scanning WhatsApp Desktop for {file_type}...", "Checking local WebView storage")
+            elif current_source == "all":
+                render_loading(f"Scanning all local sources for {file_type}...", "Combining Desktop and browser records")
             else:
                 browser_label = get_web_browser_label(current_web_browser)
                 render_loading(
-                    f"Reading {browser_label} · {get_current_profile_display_name()} for {file_type}…"
+                    f"Reading {browser_label} - {get_current_profile_display_name()} for {file_type}...",
+                    "Checking the selected browser profile",
                 )
             page.update()
 
@@ -570,10 +814,15 @@ async def main(page: ft.Page):
             page.update()
             return
 
-        diagnostics = get_status_source_diagnostics(
-            current_source, current_web_browser, current_web_profile
-        )
-        if not diagnostics["available"]:
+        diagnostics = None
+        if current_source != "all":
+            if not append:
+                render_loading("Checking source availability...", get_source_label())
+                page.update()
+            diagnostics = get_status_source_diagnostics(
+                current_source, current_web_browser, current_web_profile
+            )
+        if diagnostics and not diagnostics["available"]:
             if current_view["token"] != load_token or current_view["index"] != index:
                 return
             current_view["items"] = []
@@ -585,6 +834,9 @@ async def main(page: ft.Page):
             return
 
         page_number = (current_view["loaded_count"] // MEDIA_BATCH_SIZE) + 1
+        if not append:
+            render_loading("Reading local status records...", f"Preparing {file_type} from {get_source_label()}")
+            page.update()
         batch_items = await asyncio.to_thread(
             load_statuses,
             file_type,
@@ -598,6 +850,9 @@ async def main(page: ft.Page):
         )
         total_count = current_view["total_count"]
         if not append or total_count <= 0:
+            if not append:
+                render_loading("Counting available statuses...", f"Building the {file_type} view")
+                page.update()
             total_count = await asyncio.to_thread(
                 count_statuses,
                 file_type,
@@ -624,6 +879,9 @@ async def main(page: ft.Page):
             page.update()
             return
 
+        if not append:
+            render_loading("Preparing the view...", "Laying out cards and warming previews")
+            page.update()
         append_media_items(batch_items if append else current_view["items"])
         render_media_content()
         page.update()
@@ -637,6 +895,8 @@ async def main(page: ft.Page):
 
     # ── Settings view ──────────────────────────────────────────────────────────
     def show_settings():
+        nonlocal auto_refresh_enabled
+
         async def clear_thumbnail_cache(e):
             try:
                 for file in os.listdir(THUMBNAIL_CACHE_DIR):
@@ -655,6 +915,16 @@ async def main(page: ft.Page):
             save_dir = new_save_dir
             show_snack_bar(page, f"Save directory updated")
 
+        def on_auto_refresh_change(e):
+            nonlocal auto_refresh_enabled
+            auto_refresh_enabled = bool(e.control.value)
+            settings["auto_refresh_enabled"] = auto_refresh_enabled
+            save_settings(settings)
+            show_snack_bar(
+                page,
+                "Background updates enabled" if auto_refresh_enabled else "Background updates disabled",
+            )
+
         async def pick_directory_click(_):
             selected_path = await pick_directory_dialog.get_directory_path(
                 dialog_title="Choose where downloads are saved",
@@ -672,6 +942,7 @@ async def main(page: ft.Page):
             filled=True,
             border_radius=12,
         )
+        auto_refresh_switch = ft.Switch(value=auto_refresh_enabled, on_change=on_auto_refresh_change)
 
         def _row_setting(icon, title, subtitle, action):
             return ft.Container(
@@ -767,6 +1038,12 @@ async def main(page: ft.Page):
                         ),
                         # Cache row
                         _row_setting(
+                            ft.Icons.SYNC,
+                            "Automatic background updates",
+                            "Refresh statuses quietly in the background without interrupting your browsing",
+                            auto_refresh_switch,
+                        ),
+                        _row_setting(
                             ft.Icons.AUTO_DELETE,
                             "Thumbnail cache",
                             "Clear locally stored preview images to free up space",
@@ -823,7 +1100,7 @@ async def main(page: ft.Page):
             [
                 # Segmented pill: Desktop | Web
                 ft.Container(
-                    content=ft.Row([desktop_pill, web_pill], spacing=0),
+                    content=ft.Row([desktop_pill, web_pill, all_pill], spacing=0),
                     border_radius=20,
                     border=ft.border.all(1.5, ft.Colors.with_opacity(0.2, ft.Colors.PRIMARY)),
                     clip_behavior=ft.ClipBehavior.HARD_EDGE,
@@ -868,5 +1145,6 @@ async def main(page: ft.Page):
         )
     )
 
+    page.run_task(background_refresh_loop)
     page.run_task(show_content, 0)
     return page
