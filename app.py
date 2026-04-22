@@ -10,7 +10,16 @@ from config import (
     THUMBNAIL_CACHE_DIR,
     get_status_source_diagnostics,
 )
-from ui import build_status_card, create_title_bar, create_navigation_rail
+from ui import (
+    StatusCardHandle,
+    build_status_card,
+    build_browser_icon_button,
+    build_loading_state,
+    build_empty_state,
+    build_unavailable_state,
+    create_title_bar,
+    create_navigation_rail,
+)
 from status_handler import (
     count_statuses,
     get_status_item_key,
@@ -27,9 +36,11 @@ def show_snack_bar(page, message):
 
     duration = 1400
     if lowered_message.startswith("downloaded:"):
-        display_message = normalized_message.split(" to ", 1)[0].replace(
-            "Downloaded:", "Saved",
-        ).strip()
+        display_message = (
+            normalized_message.split(" to ", 1)[0]
+            .replace("Downloaded:", "Saved")
+            .strip()
+        )
     elif lowered_message.startswith("deleted:"):
         display_message = normalized_message.replace("Deleted:", "Removed").strip()
     elif lowered_message.startswith("error"):
@@ -53,7 +64,8 @@ def show_snack_bar(page, message):
                 dialogs.controls.remove(dialog)
         dialogs.update()
     page.show_dialog(snackbar)
-        
+
+
 async def main(page: ft.Page):
     MEDIA_BATCH_SIZE = 24
     PREVIEW_BATCH_SIZE = 8
@@ -86,6 +98,11 @@ async def main(page: ft.Page):
         current_web_browser = "chrome"
     current_web_profile = settings.get("web_profile", "")
 
+    # ── Theme ──────────────────────────────────────────────────────────────────
+    page.theme = ft.Theme(color_scheme_seed=ft.Colors.TEAL, use_material3=True)
+    page.dark_theme = ft.Theme(color_scheme_seed=ft.Colors.TEAL, use_material3=True)
+
+    # ── Content area ───────────────────────────────────────────────────────────
     page_content = ft.Column(
         alignment=ft.MainAxisAlignment.START,
         horizontal_alignment=ft.CrossAxisAlignment.START,
@@ -94,26 +111,8 @@ async def main(page: ft.Page):
         scroll=ft.ScrollMode.AUTO,
         scroll_interval=10,
     )
-    page_content.controls = [
-        ft.Container(
-            content=ft.Column(
-                [
-                    ft.Text(
-                        "Loading statuses...",
-                        theme_style=ft.TextThemeStyle.TITLE_MEDIUM,
-                        color=ft.Colors.ON_SURFACE,
-                    ),
-                    ft.ProgressBar(width=400),
-                ],
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                alignment=ft.MainAxisAlignment.CENTER,
-                tight=True,
-            ),
-            expand=True,
-            alignment=ft.Alignment(0, 0),
-            bgcolor=ft.Colors.SURFACE,
-        )
-    ]
+    page_content.controls = [build_loading_state("Loading statuses...")]
+
     pick_directory_dialog = ft.FilePicker()
     if pick_directory_dialog not in page.services:
         page.services.append(pick_directory_dialog)
@@ -131,29 +130,12 @@ async def main(page: ft.Page):
         "footer_label": None,
     }
 
-    desktop_source_button = ft.ElevatedButton(content="Desktop")
-    web_source_button = ft.ElevatedButton(content="Web")
-    web_browser_dropdown = ft.Dropdown(
-        label="Browser",
-        width=170,
-        dense=True,
-        visible=False,
-    )
-    web_profile_dropdown = ft.Dropdown(
-        label="Browser profile",
-        width=220,
-        dense=True,
-        visible=False,
-    )
-
-    media_grid = ft.ResponsiveRow(
-        controls=[],
-        spacing=12,
-        run_spacing=12,
-    )
+    # ── Media grid ─────────────────────────────────────────────────────────────
+    media_grid = ft.ResponsiveRow(controls=[], spacing=12, run_spacing=12)
     media_footer_label = ft.Text(
         color=ft.Colors.ON_SURFACE_VARIANT,
         text_align=ft.TextAlign.CENTER,
+        size=12,
     )
     media_content = ft.Container(
         content=ft.Column(
@@ -161,7 +143,7 @@ async def main(page: ft.Page):
                 media_grid,
                 ft.Container(
                     content=media_footer_label,
-                    padding=ft.padding.only(top=8, bottom=8),
+                    padding=ft.padding.only(top=8, bottom=16),
                     alignment=ft.Alignment(0, 0),
                 ),
             ],
@@ -172,48 +154,87 @@ async def main(page: ft.Page):
     )
     current_view["footer_label"] = media_footer_label
 
+    # ── Source bar state ───────────────────────────────────────────────────────
+    # Source pill buttons
+    desktop_pill_label = ft.Text("Desktop", size=13, weight=ft.FontWeight.W_500)
+    desktop_pill_icon = ft.Icon(ft.Icons.COMPUTER, size=15)
+    web_pill_label = ft.Text("Web", size=13, weight=ft.FontWeight.W_500)
+    web_pill_icon = ft.Icon(ft.Icons.LANGUAGE, size=15)
+
+    desktop_pill = ft.Container(
+        content=ft.Row(
+            [desktop_pill_icon, desktop_pill_label],
+            spacing=6,
+            tight=True,
+        ),
+        padding=ft.padding.symmetric(horizontal=16, vertical=9),
+        border_radius=ft.BorderRadius(20, 0, 0, 20),
+        on_click=lambda _: page.run_task(change_source, "desktop"),
+        ink=True,
+    )
+    web_pill = ft.Container(
+        content=ft.Row(
+            [web_pill_icon, web_pill_label],
+            spacing=6,
+            tight=True,
+        ),
+        padding=ft.padding.symmetric(horizontal=16, vertical=9),
+        border_radius=ft.BorderRadius(0, 20, 20, 0),
+        on_click=lambda _: page.run_task(change_source, "web"),
+        ink=True,
+    )
+
+    # Browser icon row (replaces browser dropdown)
+    browser_icon_row = ft.Row([], spacing=6, visible=False)
+
+    # Profile dropdown — borderless pill style, fixed height to match source pill
+    web_profile_dropdown = ft.Dropdown(
+        hint_text="Profile",
+        dense=True,
+        width=180,
+        border_radius=20,
+        border_color=ft.Colors.with_opacity(0.15, ft.Colors.ON_SURFACE),
+        bgcolor=ft.Colors.SURFACE_CONTAINER_HIGH,
+        visible=False,
+    )
+
+    # ── Helper: rebuild browser icon buttons ───────────────────────────────────
+    def rebuild_browser_icons():
+        supported = get_supported_web_browsers()
+        browser_icon_row.controls = [
+            build_browser_icon_button(
+                browser_id=b,
+                label=get_web_browser_label(b),
+                selected=(b == current_web_browser),
+                on_click=lambda _, br=b: page.run_task(change_web_browser_by_id, br),
+            )
+            for b in supported
+        ]
+        browser_icon_row.visible = current_source == "web"
+
     def get_available_web_profiles():
         return get_web_profiles(current_web_browser)
-
-    def refresh_web_browser_dropdown():
-        supported_browsers = get_supported_web_browsers()
-        web_browser_dropdown.options = [
-            ft.dropdown.Option(key=browser, text=get_web_browser_label(browser))
-            for browser in supported_browsers
-        ]
-        if current_web_browser in supported_browsers:
-            web_browser_dropdown.value = current_web_browser
-        elif supported_browsers:
-            web_browser_dropdown.value = supported_browsers[0]
-        else:
-            web_browser_dropdown.value = None
-        web_browser_dropdown.visible = current_source == "web"
 
     def refresh_web_profile_dropdown():
         nonlocal current_web_profile
         profiles = get_available_web_profiles()
-        option_values = [profile["profile_name"] for profile in profiles]
-        web_profile_dropdown.label = f"{get_web_browser_label(current_web_browser)} profile"
+        option_values = [p["profile_name"] for p in profiles]
 
         web_profile_dropdown.options = [
             ft.dropdown.Option(
-                key=profile["profile_name"],
-                text=(
-                    f"{profile['profile_name']}"
-                    if profile["available"]
-                    else f"{profile['profile_name']} (no WhatsApp Web data)"
-                ),
+                key=p["profile_name"],
+                text=p["profile_name"] if p["available"] else f"{p['profile_name']} (no data)",
             )
-            for profile in profiles
+            for p in profiles
         ]
 
         if option_values:
             if current_web_profile not in option_values:
-                preferred_profile = next(
-                    (profile["profile_name"] for profile in profiles if profile["available"]),
+                preferred = next(
+                    (p["profile_name"] for p in profiles if p["available"]),
                     option_values[0],
                 )
-                current_web_profile = preferred_profile
+                current_web_profile = preferred
                 settings["web_profile"] = current_web_profile
                 save_settings(settings)
             web_profile_dropdown.value = current_web_profile
@@ -223,40 +244,44 @@ async def main(page: ft.Page):
 
         web_profile_dropdown.visible = current_source == "web"
 
-    def refresh_source_buttons():
-        desktop_source_button.disabled = current_source == "desktop"
-        web_source_button.disabled = current_source == "web"
-        refresh_web_browser_dropdown()
+    def refresh_source_pill_style():
+        is_desktop = current_source == "desktop"
+        desktop_pill.bgcolor = ft.Colors.PRIMARY_CONTAINER if is_desktop else None
+        web_pill.bgcolor = ft.Colors.PRIMARY_CONTAINER if not is_desktop else None
+        desktop_pill_label.color = ft.Colors.ON_PRIMARY_CONTAINER if is_desktop else ft.Colors.ON_SURFACE_VARIANT
+        web_pill_label.color = ft.Colors.ON_PRIMARY_CONTAINER if not is_desktop else ft.Colors.ON_SURFACE_VARIANT
+        desktop_pill_icon.color = ft.Colors.ON_PRIMARY_CONTAINER if is_desktop else ft.Colors.ON_SURFACE_VARIANT
+        web_pill_icon.color = ft.Colors.ON_PRIMARY_CONTAINER if not is_desktop else ft.Colors.ON_SURFACE_VARIANT
+
+    def refresh_source_controls():
+        refresh_source_pill_style()
+        rebuild_browser_icons()
         refresh_web_profile_dropdown()
 
+    # ── Source / browser / profile change handlers ─────────────────────────────
     async def change_source(new_source):
         nonlocal current_source
         if new_source == current_source:
             return
-
         current_source = new_source
         settings["discovery_source"] = new_source
         save_settings(settings)
-        refresh_source_buttons()
-
+        refresh_source_controls()
         if current_view["index"] in (0, 1):
             await show_content(current_view["index"])
         else:
             page.update()
 
-    async def change_web_browser(e):
+    async def change_web_browser_by_id(browser_id):
         nonlocal current_web_browser, current_web_profile
-        selected_browser = e.control.value or "chrome"
-        if selected_browser == current_web_browser:
+        if browser_id == current_web_browser:
             return
-
-        current_web_browser = selected_browser
+        current_web_browser = browser_id
         current_web_profile = ""
         settings["web_browser"] = current_web_browser
         settings["web_profile"] = current_web_profile
         save_settings(settings)
-        refresh_source_buttons()
-
+        refresh_source_controls()
         if current_source == "web" and current_view["index"] in (0, 1):
             await show_content(current_view["index"])
         else:
@@ -267,15 +292,15 @@ async def main(page: ft.Page):
         selected_profile = e.control.value or ""
         if selected_profile == current_web_profile:
             return
-
         current_web_profile = selected_profile
         settings["web_profile"] = current_web_profile
         save_settings(settings)
-
         if current_source == "web" and current_view["index"] in (0, 1):
             await show_content(current_view["index"])
         else:
             page.update()
+
+    web_profile_dropdown.on_select = change_web_profile
 
     async def refresh_current_view(_=None):
         if current_view["index"] in (0, 1):
@@ -287,137 +312,94 @@ async def main(page: ft.Page):
             )
         await show_content(current_view["index"])
 
+    # ── Helpers ────────────────────────────────────────────────────────────────
     def get_file_type(index):
-        if index == 0:
-            return "photos"
-        if index == 1:
-            return "videos"
-        if index == 2:
-            return "downloads"
-        return None
+        return {0: "photos", 1: "videos", 2: "downloads"}.get(index)
 
     def get_source_label():
         if current_source == "desktop":
             return "WhatsApp Desktop"
         if current_web_profile:
             return (
-                f"WhatsApp Web ({get_web_browser_label(current_web_browser)} - "
-                f"{current_web_profile})"
+                f"WhatsApp Web ({get_web_browser_label(current_web_browser)}"
+                f" · {current_web_profile})"
             )
         return f"WhatsApp Web ({get_web_browser_label(current_web_browser)})"
 
+    # ── Render functions ───────────────────────────────────────────────────────
     def render_empty_state(file_type):
-        guidance = (
-            f"No {file_type} available from {get_source_label()}."
-            if current_source == "desktop"
-            else f"No {file_type} available from {get_source_label()}. "
-            f"Make sure you are logged in to web.whatsapp.com in "
-            f"{get_web_browser_label(current_web_browser)} and have opened statuses there."
-        )
-        page_content.controls = [
-            ft.Container(
-                content=ft.Column(
-                    [
-                        ft.Text(
-                            guidance,
-                            theme_style=ft.TextThemeStyle.TITLE_MEDIUM,
-                            color=ft.Colors.ON_SURFACE,
-                        )
-                    ],
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    alignment=ft.MainAxisAlignment.CENTER,
-                    tight=True,
-                ),
-                expand=True,
-                alignment=ft.Alignment(0, 0),
-                bgcolor=ft.Colors.SURFACE,
+        if file_type == "downloads":
+            msg = "Status you save will appear here."
+            icon = ft.Icons.FOLDER
+        elif current_source == "web":
+            browser_label = get_web_browser_label(current_web_browser)
+            msg = (
+                f"No {file_type} found from {get_source_label()}.\n"
+                f"Open web.whatsapp.com in {browser_label}, view statuses, then refresh."
             )
-        ]
+            icon = ft.Icons.LANGUAGE
+        else:
+            msg = f"No {file_type} found from {get_source_label()}."
+            icon = ft.Icons.PHOTO_CAMERA
+        page_content.controls = [build_empty_state(msg, icon)]
 
     def render_source_unavailable():
         diagnostics = get_status_source_diagnostics(
-            current_source,
-            current_web_browser,
-            current_web_profile,
+            current_source, current_web_browser, current_web_profile
         )
         if current_source == "desktop":
             body = (
                 "WhatsApp Desktop could not be found on this machine. "
-                "Install WhatsApp Desktop or switch to Web above."
+                "Install WhatsApp Desktop or switch to Web source above."
             )
             detail_lines = [
-                f"Desktop cache path: {diagnostics['selected_status_path']}",
-                f"Desktop WebView path: {diagnostics['webview_indexeddb_dir']}",
+                f"Desktop cache: {diagnostics['selected_status_path']}",
+                f"WebView path:  {diagnostics['webview_indexeddb_dir']}",
             ]
         else:
             browser_label = diagnostics["browser_label"]
             if not diagnostics["browser_installed"]:
                 body = (
-                    f"{browser_label} does not appear to be installed on this machine. "
-                    "Install it or switch back to WhatsApp Desktop above."
+                    f"{browser_label} is not installed. "
+                    "Install it or switch back to WhatsApp Desktop."
                 )
             elif diagnostics["profile_count"] <= 0:
                 body = (
-                    f"No {browser_label} profiles were found. Open {browser_label} once to create a profile, "
-                    "then log in to web.whatsapp.com."
+                    f"No {browser_label} profiles found. "
+                    f"Open {browser_label} once, then log in to web.whatsapp.com."
                 )
             else:
                 body = (
-                    f"WhatsApp Web data was not found for the {browser_label} profile "
-                    f"'{diagnostics['profile_name']}'. Open {browser_label} with that profile, "
-                    "log in to web.whatsapp.com, then refresh or choose another profile."
+                    f"WhatsApp Web data not found for {browser_label} profile "
+                    f"'{diagnostics['profile_name']}'. "
+                    f"Open {browser_label} with that profile, log in to web.whatsapp.com, then refresh."
                 )
             detail_lines = [
-                f"{browser_label} profile: {diagnostics['profile_name']}",
-                f"Expected IndexedDB path: {diagnostics['indexeddb_dir']}",
+                f"Profile:      {diagnostics['profile_name']}",
+                f"IndexedDB:    {diagnostics['indexeddb_dir']}",
             ]
 
         page_content.controls = [
-            ft.Container(
-                content=ft.Column(
-                    [
-                        ft.Text(
-                            f"{get_source_label()} is not available.",
-                            theme_style=ft.TextThemeStyle.HEADLINE_SMALL,
-                            color=ft.Colors.ON_SURFACE,
-                        ),
-                        ft.Text(
-                            body,
-                            color=ft.Colors.ON_SURFACE,
-                        ),
-                        ft.Container(
-                            content=ft.Text(
-                                "\n".join(detail_lines),
-                                selectable=True,
-                                color=ft.Colors.ON_SURFACE,
-                            ),
-                            padding=12,
-                            border_radius=8,
-                            bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
-                        ),
-                    ],
-                    spacing=12,
-                    tight=True,
-                ),
-                padding=24,
-                margin=20,
-                border_radius=16,
-                bgcolor=ft.Colors.with_opacity(0.03, ft.Colors.ON_SURFACE),
-                width=900,
+            build_unavailable_state(
+                f"{get_source_label()} is not available",
+                body,
+                detail_lines,
             )
         ]
 
+    def render_loading(message="Loading..."):
+        page_content.controls = [build_loading_state(message)]
+
     def update_media_footer():
-        footer_text = (
-            f"Showing {len(current_view['items'])} "
-            f"of {current_view['total_count']} {current_view['file_type']} "
-            f"from {get_source_label()}"
-        )
+        shown = len(current_view["items"])
+        total = current_view["total_count"]
+        ftype = current_view["file_type"]
+        footer = f"Showing {shown} of {total} {ftype} from {get_source_label()}"
         if current_view["is_loading_more"]:
-            footer_text = f"{footer_text} - Loading more..."
+            footer += " · Loading more…"
         elif not current_view["has_more"]:
-            footer_text = f"{footer_text} - All loaded"
-        media_footer_label.value = footer_text
+            footer += " · All loaded"
+        media_footer_label.value = footer
 
     def ensure_media_content():
         if not page_content.controls or page_content.controls[0] is not media_content:
@@ -432,7 +414,6 @@ async def main(page: ft.Page):
             item_key = get_status_item_key(item)
             if item_key in current_view["card_handles"]:
                 continue
-
             card_handle = build_status_card(
                 item,
                 False,
@@ -452,12 +433,7 @@ async def main(page: ft.Page):
         if not items:
             render_empty_state("downloads")
             return
-
-        grid = ft.ResponsiveRow(
-            controls=[],
-            spacing=12,
-            run_spacing=12,
-        )
+        grid = ft.ResponsiveRow(controls=[], spacing=12, run_spacing=12)
         for item in items:
             card_handle = build_status_card(
                 item,
@@ -469,7 +445,6 @@ async def main(page: ft.Page):
             )
             card_handle.control.col = {"sm": 6, "md": 4, "lg": 3, "xl": 2}
             grid.controls.append(card_handle.control)
-
         page_content.controls = [
             ft.Container(
                 content=grid,
@@ -480,28 +455,7 @@ async def main(page: ft.Page):
             )
         ]
 
-    def render_loading(message="Loading..."):
-        page_content.controls = [
-            ft.Container(
-                content=ft.Column(
-                    [
-                        ft.Text(
-                            message,
-                            theme_style=ft.TextThemeStyle.TITLE_MEDIUM,
-                            color=ft.Colors.ON_SURFACE,
-                        ),
-                        ft.ProgressBar(width=400),
-                    ],
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    alignment=ft.MainAxisAlignment.CENTER,
-                    tight=True,
-                ),
-                expand=True,
-                alignment=ft.Alignment(0, 0),
-                bgcolor=ft.Colors.SURFACE,
-            )
-        ]
-
+    # ── Thumbnail warming ──────────────────────────────────────────────────────
     def warm_thumbnails(paths):
         for file_path in paths:
             get_cached_thumbnail(file_path)
@@ -509,14 +463,11 @@ async def main(page: ft.Page):
     async def warm_current_batch(load_token, index, items):
         if not items:
             return
-
         warmed_paths = await asyncio.to_thread(warm_status_previews, items)
         if warmed_paths:
             await asyncio.to_thread(warm_thumbnails, warmed_paths)
-
         if current_view["token"] != load_token or current_view["index"] != index:
             return
-
         refreshed = False
         for item in items:
             card_handle = current_view["card_handles"].get(get_status_item_key(item))
@@ -524,13 +475,13 @@ async def main(page: ft.Page):
                 continue
             card_handle.refresh_preview()
             refreshed = True
-
         if refreshed:
             page.update()
 
     async def refresh_downloads():
         await show_content(2)
 
+    # ── Infinite scroll ────────────────────────────────────────────────────────
     async def maybe_load_more():
         if (
             current_view["index"] not in (0, 1)
@@ -538,7 +489,6 @@ async def main(page: ft.Page):
             or not current_view["has_more"]
         ):
             return
-
         current_view["is_loading_more"] = True
         update_media_footer()
         page.update()
@@ -552,19 +502,16 @@ async def main(page: ft.Page):
     async def on_content_scroll(e: ft.OnScrollEvent):
         if current_view["index"] not in (0, 1):
             return
-
         if current_view["is_loading_more"] or not current_view["has_more"]:
             return
-
         if e.max_scroll_extent <= 0:
             return
-
-        remaining_distance = e.max_scroll_extent - e.pixels
-        if remaining_distance <= LOAD_MORE_THRESHOLD_PX:
+        if (e.max_scroll_extent - e.pixels) <= LOAD_MORE_THRESHOLD_PX:
             page.run_task(maybe_load_more)
 
     page_content.on_scroll = on_content_scroll
 
+    # ── Main content loader ────────────────────────────────────────────────────
     async def show_content(index, append=False):
         if index == 3:
             current_view["index"] = 3
@@ -586,24 +533,22 @@ async def main(page: ft.Page):
             current_view["has_more"] = False
             current_view["is_loading_more"] = False
             reset_media_content()
-            loading_message = (
-                f"Loading {get_source_label()} statuses..."
-                if file_type != "downloads"
-                else "Loading downloads..."
-            )
-            render_loading(loading_message)
+            if file_type == "downloads":
+                render_loading("Loading your saved files…")
+            elif current_source == "desktop":
+                render_loading(f"Scanning WhatsApp Desktop for {file_type}…")
+            else:
+                browser_label = get_web_browser_label(current_web_browser)
+                render_loading(
+                    f"Reading {browser_label} · {current_web_profile or 'Default'} for {file_type}…"
+                )
             page.update()
 
         load_token = current_view["token"]
 
         if file_type == "downloads":
             items = await asyncio.to_thread(
-                load_statuses,
-                file_type,
-                save_dir,
-                1,
-                None,
-                True,
+                load_statuses, file_type, save_dir, 1, None, True
             )
             if current_view["token"] != load_token or current_view["index"] != index:
                 return
@@ -616,9 +561,7 @@ async def main(page: ft.Page):
             return
 
         diagnostics = get_status_source_diagnostics(
-            current_source,
-            current_web_browser,
-            current_web_profile,
+            current_source, current_web_browser, current_web_profile
         )
         if not diagnostics["available"]:
             if current_view["token"] != load_token or current_view["index"] != index:
@@ -682,16 +625,17 @@ async def main(page: ft.Page):
         if remaining_items:
             page.run_task(warm_current_batch, load_token, index, remaining_items)
 
+    # ── Settings view ──────────────────────────────────────────────────────────
     def show_settings():
         async def clear_thumbnail_cache(e):
             try:
                 for file in os.listdir(THUMBNAIL_CACHE_DIR):
-                    file_path = os.path.join(THUMBNAIL_CACHE_DIR, file)
-                    if os.path.isfile(file_path):
-                        os.unlink(file_path)
+                    fp = os.path.join(THUMBNAIL_CACHE_DIR, file)
+                    if os.path.isfile(fp):
+                        os.unlink(fp)
                 show_snack_bar(page, "Thumbnail cache cleared")
-            except Exception as e:
-                show_snack_bar(page, f"Error clearing cache: {str(e)}")
+            except Exception as ex:
+                show_snack_bar(page, f"Error clearing cache: {str(ex)}")
 
         def on_save_click(e):
             new_save_dir = save_dir_input.value
@@ -699,7 +643,7 @@ async def main(page: ft.Page):
             save_settings(settings)
             nonlocal save_dir
             save_dir = new_save_dir
-            show_snack_bar(page, f"Save directory updated to: {new_save_dir}")
+            show_snack_bar(page, f"Save directory updated")
 
         async def pick_directory_click(_):
             selected_path = await pick_directory_dialog.get_directory_path(
@@ -712,42 +656,122 @@ async def main(page: ft.Page):
 
         save_dir_input = ft.TextField(
             value=save_dir,
-            label="Save Directory",
-            width=500,
+            label="Save directory",
+            expand=True,
             read_only=True,
+            filled=True,
+            border_radius=12,
         )
-        pick_directory_button = ft.ElevatedButton(
-            content="Browse",
-            on_click=pick_directory_click,
-        )
-        clear_cache_button = ft.ElevatedButton(
-            content="Clear Thumbnail Cache",
-            on_click=clear_thumbnail_cache,
-        )
-        save_button = ft.ElevatedButton(content="Update", on_click=on_save_click)
+
+        def _row_setting(icon, title, subtitle, action):
+            return ft.Container(
+                content=ft.Row(
+                    [
+                        ft.Container(
+                            content=ft.Icon(icon, size=20, color=ft.Colors.PRIMARY),
+                            width=40,
+                            height=40,
+                            bgcolor=ft.Colors.PRIMARY_CONTAINER,
+                            border_radius=12,
+                            alignment=ft.Alignment(0, 0),
+                        ),
+                        ft.Column(
+                            [
+                                ft.Text(title, size=14, weight=ft.FontWeight.W_500, color=ft.Colors.ON_SURFACE),
+                                ft.Text(subtitle, size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                            ],
+                            spacing=1,
+                            tight=True,
+                            expand=True,
+                        ),
+                        action,
+                    ],
+                    spacing=14,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                padding=ft.padding.symmetric(horizontal=16, vertical=14),
+                border_radius=14,
+                bgcolor=ft.Colors.SURFACE_CONTAINER_LOW,
+                border=ft.border.all(1, ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE)),
+            )
 
         page_content.controls = [
             ft.Container(
                 content=ft.Column(
-                    controls=[
+                    [
                         ft.Text(
                             "Settings",
                             theme_style=ft.TextThemeStyle.HEADLINE_SMALL,
                             color=ft.Colors.ON_SURFACE,
+                            weight=ft.FontWeight.W_600,
                         ),
-                        ft.Row(
-                            controls=[save_dir_input, pick_directory_button],
-                            spacing=10,
-                            wrap=True,
+                        # Save directory row
+                        ft.Container(
+                            content=ft.Column(
+                                [
+                                    ft.Row(
+                                        [
+                                            ft.Container(
+                                                content=ft.Icon(ft.Icons.FOLDER_OPEN, size=20, color=ft.Colors.PRIMARY),
+                                                width=40, height=40,
+                                                bgcolor=ft.Colors.PRIMARY_CONTAINER,
+                                                border_radius=12,
+                                                alignment=ft.Alignment(0, 0),
+                                            ),
+                                            ft.Column(
+                                                [
+                                                    ft.Text("Save location", size=14, weight=ft.FontWeight.W_500),
+                                                    ft.Text("Where downloaded statuses are stored", size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                                                ],
+                                                spacing=1,
+                                                tight=True,
+                                                expand=True,
+                                            ),
+                                        ],
+                                        spacing=14,
+                                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                    ),
+                                    ft.Row(
+                                        [
+                                            save_dir_input,
+                                            ft.OutlinedButton(
+                                                "Browse",
+                                                icon=ft.Icons.FOLDER,
+                                                on_click=pick_directory_click,
+                                            ),
+                                            ft.FilledButton(
+                                                "Save",
+                                                on_click=on_save_click,
+                                            ),
+                                        ],
+                                        spacing=10,
+                                    ),
+                                ],
+                                spacing=14,
+                                tight=True,
+                            ),
+                            padding=ft.padding.symmetric(horizontal=16, vertical=14),
+                            border_radius=14,
+                            bgcolor=ft.Colors.SURFACE_CONTAINER_LOW,
+                            border=ft.border.all(1, ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE)),
                         ),
-                        save_button,
-                        clear_cache_button,
+                        # Cache row
+                        _row_setting(
+                            ft.Icons.AUTO_DELETE,
+                            "Thumbnail cache",
+                            "Clear locally stored preview images to free up space",
+                            ft.OutlinedButton(
+                                "Clear",
+                                icon=ft.Icons.DELETE_SWEEP,
+                                on_click=clear_thumbnail_cache,
+                            ),
+                        ),
                     ],
                     alignment=ft.MainAxisAlignment.START,
                     horizontal_alignment=ft.CrossAxisAlignment.START,
-                    spacing=20,
+                    spacing=12,
                 ),
-                padding=24,
+                padding=ft.padding.all(24),
                 bgcolor=ft.Colors.SURFACE,
                 alignment=ft.Alignment(-1, -1),
                 expand=True,
@@ -755,72 +779,82 @@ async def main(page: ft.Page):
         ]
         page.update()
 
+    # ── Theme toggle ───────────────────────────────────────────────────────────
+    _is_light = page.theme_mode == ft.ThemeMode.LIGHT
+    theme_icon_btn = ft.IconButton(
+        icon=ft.Icons.WB_SUNNY_OUTLINED if _is_light else ft.Icons.WB_SUNNY,
+        icon_color=ft.Colors.ON_SURFACE_VARIANT,
+        tooltip="Toggle theme",
+        icon_size=20,
+    )
+
     def theme_changed(e):
         is_light = page.theme_mode == ft.ThemeMode.LIGHT
-        new_theme_mode = ft.ThemeMode.DARK if is_light else ft.ThemeMode.LIGHT
-        settings["theme_mode"] = "dark" if new_theme_mode == ft.ThemeMode.DARK else "light"
+        new_mode = ft.ThemeMode.DARK if is_light else ft.ThemeMode.LIGHT
+        settings["theme_mode"] = "dark" if new_mode == ft.ThemeMode.DARK else "light"
         save_settings(settings)
-        page.theme_mode = new_theme_mode
-        e.control.icon = (
-            ft.Icons.WB_SUNNY
-            if new_theme_mode == ft.ThemeMode.DARK
-            else ft.Icons.WB_SUNNY_OUTLINED
+        page.theme_mode = new_mode
+        theme_icon_btn.icon = (
+            ft.Icons.WB_SUNNY if new_mode == ft.ThemeMode.DARK else ft.Icons.WB_SUNNY_OUTLINED
         )
         page.update()
 
-    LIGHT_SEED_COLOR = ft.Colors.LIGHT_BLUE
-    DARK_SEED_COLOR = ft.Colors.DEEP_PURPLE
+    theme_icon_btn.on_click = theme_changed
 
-    page.theme = ft.Theme(color_scheme_seed=LIGHT_SEED_COLOR, use_material3=True)
-    page.dark_theme = ft.Theme(color_scheme_seed=DARK_SEED_COLOR, use_material3=True)
-
+    # ── Tab change ─────────────────────────────────────────────────────────────
     async def on_tab_change(e):
         await show_content(e.control.selected_index)
 
-    desktop_source_button.on_click = lambda _: page.run_task(change_source, "desktop")
-    web_source_button.on_click = lambda _: page.run_task(change_source, "web")
-    web_browser_dropdown.on_select = change_web_browser
-    web_profile_dropdown.on_select = change_web_profile
-    refresh_source_buttons()
+    # ── Source bar assembly ────────────────────────────────────────────────────
+    refresh_source_controls()
 
     source_toggle = ft.Container(
         content=ft.Row(
             [
-                ft.Text(
-                    "Source",
-                    theme_style=ft.TextThemeStyle.TITLE_SMALL,
-                    color=ft.Colors.ON_SURFACE,
+                # Segmented pill: Desktop | Web
+                ft.Container(
+                    content=ft.Row([desktop_pill, web_pill], spacing=0),
+                    border_radius=20,
+                    border=ft.border.all(1.5, ft.Colors.with_opacity(0.2, ft.Colors.PRIMARY)),
+                    clip_behavior=ft.ClipBehavior.HARD_EDGE,
                 ),
-                desktop_source_button,
-                web_source_button,
-                web_browser_dropdown,
+                # Browser chips — visible when web is active (same height as pill, no layout shift)
+                browser_icon_row,
+                # Profile selector — visible when web is active
                 web_profile_dropdown,
             ],
-            spacing=10,
+            spacing=12,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
         ),
-        padding=ft.padding.only(left=16, right=16, bottom=8),
-        bgcolor=ft.Colors.SURFACE,
+        # Fixed height: prevents layout shift when web controls appear/disappear
+        height=58,
+        padding=ft.padding.symmetric(horizontal=16),
+        bgcolor=ft.Colors.SURFACE_CONTAINER_LOW,
+        border=ft.border.only(
+            bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.07, ft.Colors.ON_SURFACE))
+        ),
     )
 
+    # ── Page layout ────────────────────────────────────────────────────────────
     rail = create_navigation_rail(on_tab_change)
-    title_bar = create_title_bar(page, refresh_current_view, theme_changed)
+    title_bar = create_title_bar(page, refresh_current_view, theme_icon_btn)
 
     page.add(
         ft.Column(
-            [title_bar,
+            [
+                title_bar,
                 source_toggle,
                 ft.Row(
                     [
                         rail,
                         ft.VerticalDivider(width=1),
-                        page_content
+                        page_content,
                     ],
                     expand=True,
                     vertical_alignment=ft.CrossAxisAlignment.START,
-                )
+                ),
             ],
-            expand=True
+            expand=True,
         )
     )
 
