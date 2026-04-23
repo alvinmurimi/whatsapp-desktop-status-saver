@@ -2,41 +2,30 @@
 
 <img src="screenshots/main.png" alt="Overview">
 
-Windows app for discovering, browsing, and saving WhatsApp statuses from WhatsApp Desktop or WhatsApp Web.
+Download WhatsApp statuses on Windows from WhatsApp Desktop or WhatsApp Web.
 
-Supports local status discovery from:
+It works from WhatsApp data already stored locally on your machine and supports:
 
 - WhatsApp Desktop
 - Chrome
 - Edge
 - Firefox
 
-## What It Does
-
-This project reads WhatsApp-related data already stored locally on your machine and turns it into a fast desktop UI for browsing and saving status media.
-
-It can:
-
-- discover available photo and video statuses
-- build a local status index
-- materialize media into a local cache when needed
-- generate thumbnails for browsing
-- open media in the default system app
-- save media to a folder you choose
-
-This project does not use an official WhatsApp API.
-
 ## Features
 
 - WhatsApp Desktop support on Windows
 - WhatsApp Web support from local browser profiles
 - Chrome, Edge, and Firefox support
-- Photo and video status browsing
+- Photos, videos, and text statuses
+- Copy text and link statuses directly from the app
+- Save text statuses as rendered images
 - Manual refresh for newly discovered statuses
+- Optional automatic background updates
 - Open media in the default system app
-- Save media to a selected folder
 - Theme support
 - Friendly browser profile names when available
+
+This project does not use an official WhatsApp API.
 
 ## Download for Windows
 
@@ -87,25 +76,13 @@ For WhatsApp Web, the app reads local browser profile data from the selected sup
 
 - Python 3.14
 - Flet for the desktop UI
-- Pillow for image handling
+- Pillow for image handling and text-status rendering
 - OpenCV for video thumbnail generation
 - `cryptography` for WhatsApp media decryption when needed
 - `ccl_chromium_reader` for Chromium/WebView IndexedDB parsing on Windows
 - Firefox local storage parsing for WhatsApp Web profile support
 - Local JSON, media, and thumbnail caching for repeated loads
-
-## Implementation Notes
-
-At a high level, the app:
-
-1. reads local WhatsApp status metadata from Desktop or browser storage
-2. builds a local index of status records
-3. resolves media metadata for photos and videos
-4. materializes media files into a local cache when needed
-5. generates thumbnails for the UI
-6. opens or saves the resolved local files
-
-The current implementation is local-first and cache-backed. It is designed to avoid reparsing everything on every startup.
+- Live local-session text hydration for statuses whose body text is not fully exposed at rest
 
 ## Security and Privacy
 
@@ -123,6 +100,7 @@ Known constraints:
 
 - a future WhatsApp update may break status discovery
 - some status records may exist after their media URLs expire
+- some text statuses may require live-session hydration before they can be shown correctly
 - support is currently focused on Windows
 
 ## Build Windows Bundle
