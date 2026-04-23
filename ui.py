@@ -111,7 +111,6 @@ def _build_text_preview(item):
                     text_align=ft.TextAlign.CENTER,
                     weight=title_weight,
                     font_family=font_family,
-                    selectable=True,
                     tooltip=raw_label,
                     max_lines=8 if is_link else 7,
                     overflow=ft.TextOverflow.ELLIPSIS,
@@ -136,7 +135,6 @@ def _build_text_preview(item):
                             size=10,
                             color=ft.Colors.with_opacity(0.72, _argb_to_hex(getattr(item, "text_color", None), "#FFFFFF")),
                             text_align=ft.TextAlign.CENTER,
-                            selectable=True,
                             max_lines=1,
                             overflow=ft.TextOverflow.ELLIPSIS,
                         )
@@ -259,7 +257,7 @@ def build_status_card(
         height=160,
         border_radius=ft.BorderRadius.all(12),
         clip_behavior=ft.ClipBehavior.HARD_EDGE,
-        ink=not (isinstance(item, StatusRecord) and item.kind == "texts"),
+        ink=True,
     )
 
     def refresh_preview():
@@ -297,8 +295,7 @@ def build_status_card(
         if result.startswith("Error"):
             on_action(result)
 
-    if not (isinstance(item, StatusRecord) and item.kind == "texts"):
-        preview_host.on_click = handle_open_click
+    preview_host.on_click = handle_open_click
     refresh_preview()
 
     action_icon = ft.Icons.DELETE if is_download_section else ft.Icons.SAVE_ALT
