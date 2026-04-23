@@ -28,7 +28,11 @@ from config import (
     get_supported_web_browsers,
     get_web_profiles,
 )
-from live_text_hydration import merge_cached_text_hydration
+from live_text_hydration import (
+    hydrate_live_text_records,
+    merge_cached_text_hydration,
+    records_need_live_hydration,
+)
 
 try:
     from ccl_chromium_reader.ccl_chromium_indexeddb import (
@@ -227,13 +231,35 @@ def get_webview_status_records(
         )
         if record.kind == file_type
     ]
+    if file_type == "texts":
+        records = _prepare_text_records(records)
+
     if items_per_page is None or items_per_page <= 0:
-        return merge_cached_text_hydration(records) if file_type == "texts" else records
+        return records
 
     start = max(0, (page - 1) * items_per_page)
     stop = start + items_per_page
     paged_records = records[start:stop]
-    return merge_cached_text_hydration(paged_records) if file_type == "texts" else paged_records
+    return paged_records
+
+
+def _prepare_text_records(records: list[StatusRecord]) -> list[StatusRecord]:
+    if not records:
+        return []
+
+    merged_records = merge_cached_text_hydration(records)
+    if records_need_live_hydration(merged_records):
+        try:
+            hydrate_live_text_records(merged_records)
+        except Exception:
+            pass
+        merged_records = merge_cached_text_hydration(records)
+
+    return [
+        record
+        for record in merged_records
+        if (record.text_value or "").strip()
+    ]
 
 
 def iter_status_records(
